@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -21,6 +22,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
+import { useInitialLocale } from "@/app/locale-provider";
 import {
   buildRows,
   countText,
@@ -28,10 +30,13 @@ import {
   type DiffRow,
   type Segment,
 } from "@/lib/diff";
+import {
+  isLocale,
+  LANGUAGE_COOKIE_KEY,
+  LANGUAGE_STORAGE_KEY,
+  type Locale,
+} from "@/lib/locale";
 
-type Locale = "en" | "zh-CN";
-
-const LANGUAGE_STORAGE_KEY = "text-diff-tool-language";
 const LANGUAGE_CHANGE_EVENT = "text-diff-tool-language-change";
 let sessionLocale: Locale | null = null;
 
@@ -143,17 +148,19 @@ const translations = {
 function getPreferredLocale(): Locale {
   try {
     const savedLocale = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    if (savedLocale === "en" || savedLocale === "zh-CN") return savedLocale;
+    if (isLocale(savedLocale)) return savedLocale;
   } catch {
-    // Continue with browser language when storage is unavailable.
+    // Continue with the language cookie when storage is unavailable.
   }
+
+  const cookieLocale = document.cookie
+    .split("; ")
+    .find((cookie) => cookie.startsWith(`${LANGUAGE_COOKIE_KEY}=`))
+    ?.split("=", 2)[1];
+  if (isLocale(cookieLocale)) return cookieLocale;
 
   if (sessionLocale) return sessionLocale;
   return navigator.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en";
-}
-
-function getServerLocale(): Locale {
-  return "en";
 }
 
 function subscribeToLocale(onStoreChange: () => void) {
@@ -217,6 +224,8 @@ function DiffLineCell({
 }
 
 export default function Home() {
+  const initialLocale = useInitialLocale();
+  const getServerLocale = useCallback(() => initialLocale, [initialLocale]);
   const locale = useSyncExternalStore(
     subscribeToLocale,
     getPreferredLocale,
@@ -281,6 +290,7 @@ export default function Home() {
     document
       .querySelector('meta[name="description"]')
       ?.setAttribute("content", t.description);
+    document.cookie = `${LANGUAGE_COOKIE_KEY}=${locale}; Path=/; Max-Age=31536000; SameSite=Lax`;
   }, [locale, t.description, t.title]);
 
   useEffect(() => {
@@ -346,6 +356,7 @@ export default function Home() {
 
   const selectLanguage = (nextLocale: Locale) => {
     sessionLocale = nextLocale;
+    document.cookie = `${LANGUAGE_COOKIE_KEY}=${nextLocale}; Path=/; Max-Age=31536000; SameSite=Lax`;
     try {
       window.localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLocale);
     } catch {
