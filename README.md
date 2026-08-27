@@ -42,6 +42,8 @@ npm run deploy -- --name text-diff-tool
 
 在自动化部署环境中，也可以通过 `CLOUDFLARE_API_TOKEN` 和 `CLOUDFLARE_ACCOUNT_ID` 提供 Cloudflare 身份与账户信息。
 
+公开仓库不包含当前托管环境的 `.openai/hosting.json`。该文件并非 Cloudflare Workers 部署所需，项目在没有它时会自动使用标准 Cloudflare 配置。
+
 ## License
 
 [MIT](LICENSE)
