@@ -164,6 +164,53 @@ textarea:focus-visible {
   font-size: 12px;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.language-switch {
+  height: 32px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  color: #6a7689;
+  background: #f4f6fa;
+  border: 1px solid #e0e5ed;
+  border-radius: 9px;
+}
+
+.language-icon {
+  margin: 0 3px 0 4px;
+  flex: none;
+}
+
+.language-switch button {
+  min-width: 34px;
+  height: 24px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 6px;
+  color: #707c8f;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.language-switch button:hover {
+  color: #3157d5;
+}
+
+.language-switch button.is-active {
+  color: #2948b8;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(30 41 59 / 12%);
+}
+
 .privacy-note {
   display: flex;
   align-items: center;
@@ -726,6 +773,28 @@ textarea:focus-visible {
 }
 
 @media (max-width: 420px) {
+  .topbar {
+    gap: 8px;
+    padding-inline: 12px;
+  }
+
+  .brand {
+    gap: 8px;
+  }
+
+  .brand-mark {
+    width: 34px;
+    height: 34px;
+  }
+
+  .brand h1 {
+    font-size: 14px;
+  }
+
+  .language-icon {
+    display: none;
+  }
+
   .toolbar {
     flex-direction: column;
     align-items: stretch;

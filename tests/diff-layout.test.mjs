@@ -57,9 +57,9 @@ test("applies the same resized height to both editors", () => {
 });
 
 test("labels the total as changed lines and reports clipboard failures", () => {
-  assert.match(page, /\{changedRows\} 行差异/);
+  assert.match(page, /t\.changedLines\(changedRows\)/);
   assert.doesNotMatch(page, /\{changedRows\} 处变化/);
-  assert.match(page, /toast\.error\("复制失败，请手动选择文本复制。"/);
+  assert.match(page, /toast\.error\(t\.copyFailure/);
 });
 
 test("wraps the controls cleanly on narrow screens", () => {

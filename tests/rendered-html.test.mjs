@@ -27,10 +27,11 @@ test("renders the production title and description", async () => {
     /^text\/html\b/i,
   );
   const html = await response.text();
-  assert.match(html, /<title>文本对比工具<\/title>/i);
+  assert.match(html, /<html[^>]+lang=["']en["']/i);
+  assert.match(html, /<title>Text Diff Tool<\/title>/i);
   assert.match(
     html,
-    /<meta(?=[^>]*\bname=["']description["'])(?=[^>]*\bcontent=["']在浏览器中并排比较两份文本，高亮显示新增、删除和修改的内容。["'])[^>]*>/i,
+    /<meta(?=[^>]*\bname=["']description["'])(?=[^>]*\bcontent=["']Compare two texts side by side in your browser and highlight additions, deletions, and changes\.["'])[^>]*>/i,
   );
   assert.doesNotMatch(html, /\bname=["']codex-preview["']/i);
 });
