@@ -358,6 +358,19 @@ test("aligns insertion and deletion in a huge repetition-heavy document", () => 
 test("counts user-perceived characters instead of UTF-16 code units", () => {
   assert.deepEqual(countText("A👩‍💻\n"), { lines: 2, characters: 3 });
   assert.deepEqual(countText(""), { lines: 0, characters: 0 });
+  assert.deepEqual(countText("a\r\nb\rc"), { lines: 3, characters: 5 });
+});
+
+test("handles a huge paste against an empty or tiny other side", () => {
+  const huge = Array.from({ length: 200_000 }, (_, index) => `line ${index}`).join("\n");
+
+  const fromEmpty = buildRows("", huge, false);
+  assert.equal(fromEmpty.length, 200_000);
+  assert.equal(reconstruct(fromEmpty, "right"), huge);
+
+  const fromOneLine = buildRows("x", huge, false);
+  assert.equal(reconstruct(fromOneLine, "left"), "x");
+  assert.equal(reconstruct(fromOneLine, "right"), huge);
 });
 
 test("normalizes Windows and classic Mac line endings", () => {

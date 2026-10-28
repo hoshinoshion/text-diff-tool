@@ -1,7 +1,9 @@
 "use client";
 
 import {
+  memo,
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -223,6 +225,94 @@ function DiffLineCell({
   );
 }
 
+const DiffTable = memo(function DiffTable({
+  detailedRows,
+  wrapLines,
+  originalLabel,
+  revisedLabel,
+}: {
+  detailedRows: { row: DiffRow; segments: ReturnType<typeof inlineDiff> | null }[];
+  wrapLines: boolean;
+  originalLabel: string;
+  revisedLabel: string;
+}) {
+  const leftDiffPane = useRef<HTMLDivElement>(null);
+  const rightDiffPane = useRef<HTMLDivElement>(null);
+  const syncingDiffScroll = useRef(false);
+
+  const syncDiffScroll = (
+    source: HTMLDivElement,
+    target: HTMLDivElement | null,
+  ) => {
+    if (!target || syncingDiffScroll.current) return;
+    syncingDiffScroll.current = true;
+    target.scrollLeft = source.scrollLeft;
+    window.requestAnimationFrame(() => {
+      syncingDiffScroll.current = false;
+    });
+  };
+
+  return (
+    <div className={`diff-table ${wrapLines ? "wrap-lines" : "no-wrap-lines"}`}>
+      {wrapLines ? (
+        <div className="diff-scroll">
+          <div className="diff-rows">
+            <div className="diff-column-labels" aria-hidden="true">
+              <span>{originalLabel}</span>
+              <span>{revisedLabel}</span>
+            </div>
+            {detailedRows.map(({ row, segments }, index) => (
+              <div className={`diff-row diff-row-${row.kind}`} key={index}>
+                <DiffLineCell row={row} side="left" segments={segments} />
+                <DiffLineCell row={row} side="right" segments={segments} />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="parallel-diff">
+          <div className="diff-pane-group">
+            <div className="diff-pane-label">{originalLabel}</div>
+            <div
+              className="diff-pane"
+              ref={leftDiffPane}
+              onScroll={(event) =>
+                syncDiffScroll(event.currentTarget, rightDiffPane.current)
+              }
+            >
+              <div className="diff-pane-content">
+                {detailedRows.map(({ row, segments }, index) => (
+                  <div className={`diff-pane-row diff-row-${row.kind}`} key={index}>
+                    <DiffLineCell row={row} side="left" segments={segments} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="diff-pane-group">
+            <div className="diff-pane-label">{revisedLabel}</div>
+            <div
+              className="diff-pane"
+              ref={rightDiffPane}
+              onScroll={(event) =>
+                syncDiffScroll(event.currentTarget, leftDiffPane.current)
+              }
+            >
+              <div className="diff-pane-content">
+                {detailedRows.map(({ row, segments }, index) => (
+                  <div className={`diff-pane-row diff-row-${row.kind}`} key={index}>
+                    <DiffLineCell row={row} side="right" segments={segments} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
 export default function Home() {
   const initialLocale = useInitialLocale();
   const getServerLocale = useCallback(() => initialLocale, [initialLocale]);
@@ -238,14 +328,12 @@ export default function Home() {
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
   const [wrapLines, setWrapLines] = useState(true);
   const [copied, setCopied] = useState<"left" | "right" | null>(null);
+  const copiedTimer = useRef<number | undefined>(undefined);
   const [editorHeight, setEditorHeight] = useState<number | null>(null);
   const preferredEditorHeight = useRef<number | null>(null);
   const resizingViewport = useRef(false);
   const leftEditor = useRef<HTMLTextAreaElement>(null);
   const rightEditor = useRef<HTMLTextAreaElement>(null);
-  const leftDiffPane = useRef<HTMLDivElement>(null);
-  const rightDiffPane = useRef<HTMLDivElement>(null);
-  const syncingDiffScroll = useRef(false);
   const t = translations[locale];
   const { left: leftText, right: rightText } = editedTexts ?? PRESET_TEXTS[locale];
 
@@ -263,9 +351,12 @@ export default function Home() {
     }));
   };
 
+  // Diffing large texts is slow, so let typing render before the result.
+  const deferredLeftText = useDeferredValue(leftText);
+  const deferredRightText = useDeferredValue(rightText);
   const rows = useMemo(
-    () => buildRows(leftText, rightText, ignoreWhitespace),
-    [leftText, rightText, ignoreWhitespace],
+    () => buildRows(deferredLeftText, deferredRightText, ignoreWhitespace),
+    [deferredLeftText, deferredRightText, ignoreWhitespace],
   );
   const detailedRows = useMemo(
     () =>
@@ -278,8 +369,11 @@ export default function Home() {
       })),
     [rows],
   );
-  const leftCount = countText(leftText);
-  const rightCount = countText(rightText);
+  const leftCount = useMemo(() => countText(deferredLeftText), [deferredLeftText]);
+  const rightCount = useMemo(
+    () => countText(deferredRightText),
+    [deferredRightText],
+  );
   const removedLines = rows.filter((row) => row.kind === "changed" && row.left).length;
   const addedLines = rows.filter((row) => row.kind === "changed" && row.right).length;
   const changedRows = rows.filter((row) => row.kind === "changed").length;
@@ -378,7 +472,8 @@ export default function Home() {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(side);
-      window.setTimeout(() => setCopied(null), 1200);
+      window.clearTimeout(copiedTimer.current);
+      copiedTimer.current = window.setTimeout(() => setCopied(null), 1200);
     } catch {
       toast.error(t.copyFailure, {
         description: t.clipboardPermission,
@@ -393,18 +488,6 @@ export default function Home() {
     if (!target || source.scrollHeight <= source.clientHeight) return;
     const progress = source.scrollTop / (source.scrollHeight - source.clientHeight);
     target.scrollTop = progress * (target.scrollHeight - target.clientHeight);
-  };
-
-  const syncDiffScroll = (
-    source: HTMLDivElement,
-    target: HTMLDivElement | null,
-  ) => {
-    if (!target || syncingDiffScroll.current) return;
-    syncingDiffScroll.current = true;
-    target.scrollLeft = source.scrollLeft;
-    window.requestAnimationFrame(() => {
-      syncingDiffScroll.current = false;
-    });
   };
 
   return (
@@ -606,63 +689,12 @@ export default function Home() {
               <p>{t.identicalDescription}</p>
             </div>
           ) : (
-            <div className={`diff-table ${wrapLines ? "wrap-lines" : "no-wrap-lines"}`}>
-              {wrapLines ? (
-                <div className="diff-scroll">
-                  <div className="diff-rows">
-                    <div className="diff-column-labels" aria-hidden="true">
-                      <span>{t.original}</span>
-                      <span>{t.revised}</span>
-                    </div>
-                    {detailedRows.map(({ row, segments }, index) => (
-                      <div className={`diff-row diff-row-${row.kind}`} key={index}>
-                        <DiffLineCell row={row} side="left" segments={segments} />
-                        <DiffLineCell row={row} side="right" segments={segments} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="parallel-diff">
-                  <div className="diff-pane-group">
-                    <div className="diff-pane-label">{t.original}</div>
-                    <div
-                      className="diff-pane"
-                      ref={leftDiffPane}
-                      onScroll={(event) =>
-                        syncDiffScroll(event.currentTarget, rightDiffPane.current)
-                      }
-                    >
-                      <div className="diff-pane-content">
-                        {detailedRows.map(({ row, segments }, index) => (
-                          <div className={`diff-pane-row diff-row-${row.kind}`} key={index}>
-                            <DiffLineCell row={row} side="left" segments={segments} />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="diff-pane-group">
-                    <div className="diff-pane-label">{t.revised}</div>
-                    <div
-                      className="diff-pane"
-                      ref={rightDiffPane}
-                      onScroll={(event) =>
-                        syncDiffScroll(event.currentTarget, leftDiffPane.current)
-                      }
-                    >
-                      <div className="diff-pane-content">
-                        {detailedRows.map(({ row, segments }, index) => (
-                          <div className={`diff-pane-row diff-row-${row.kind}`} key={index}>
-                            <DiffLineCell row={row} side="right" segments={segments} />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            <DiffTable
+              detailedRows={detailedRows}
+              wrapLines={wrapLines}
+              originalLabel={t.original}
+              revisedLabel={t.revised}
+            />
           )}
         </section>
       </section>
