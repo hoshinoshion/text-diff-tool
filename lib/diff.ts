@@ -153,6 +153,11 @@ export function normalizeLine(line: string, ignoreWhitespace: boolean) {
   return ignoreWhitespace ? normalized.replace(/\s+/g, " ").trim() : normalized;
 }
 
+// Spreading a large array into push() overflows the call stack.
+function appendAll<T>(target: T[], items: T[]) {
+  for (const item of items) target.push(item);
+}
+
 function sameOperation(
   left: string[],
   right: string[],
@@ -394,8 +399,9 @@ function diffLineRange(
       operations.push({ kind: "removed", text: left[index], number: index + 1 });
     }
   } else if (leftLength * rightLength <= EXACT_LINE_DIFF_CELL_LIMIT) {
-    operations.push(
-      ...exactLineDiffRange(
+    appendAll(
+      operations,
+      exactLineDiffRange(
         left,
         right,
         leftNormalized,
@@ -982,7 +988,7 @@ export function buildRows(
       index += 1;
     }
 
-    rows.push(...alignChangedRows(removed, added));
+    appendAll(rows, alignChangedRows(removed, added));
   }
 
   return rows;
@@ -1002,8 +1008,17 @@ export function splitGraphemes(text: string) {
 export function countText(text: string) {
   return {
     lines: splitLines(text).length,
-    characters: splitGraphemes(text).length,
+    characters: countGraphemes(text),
   };
+}
+
+function countGraphemes(text: string) {
+  // In ASCII text only CR LF forms a multi-character grapheme, so skip the
+  // much slower segmenter for it.
+  if (/^[\x00-\x7f]*$/.test(text)) {
+    return text.length - (text.match(/\r\n/g)?.length ?? 0);
+  }
+  return splitGraphemes(text).length;
 }
 
 function appendSegment(segments: Segment[], segment: Segment) {
