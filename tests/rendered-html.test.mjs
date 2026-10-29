@@ -84,7 +84,8 @@ test("sends security headers that keep pasted text in the browser", async () => 
   const policy = response.headers.get("content-security-policy") ?? "";
 
   assert.match(policy, /default-src 'self'/);
-  assert.match(policy, /connect-src 'self'/);
+  assert.match(policy, /connect-src 'self' https:\/\/cloudflareinsights\.com;/);
+  assert.match(policy, /script-src 'self' 'unsafe-inline' https:\/\/static\.cloudflareinsights\.com;/);
   assert.match(policy, /frame-ancestors 'none'/);
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
   assert.equal(response.headers.get("cache-control"), "private, no-cache");
