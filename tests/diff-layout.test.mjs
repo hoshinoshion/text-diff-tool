@@ -59,9 +59,16 @@ test("labels the total as changed lines and reports clipboard failures", () => {
 
 test("wraps the controls cleanly on narrow screens", () => {
   assert.match(css, /@media \(max-width: 420px\)/);
-  assert.match(css, /\.toolbar\s*\{[^}]*flex-direction:\s*column/s);
-  assert.match(css, /\.toolbar-options\s*\{[^}]*justify-content:\s*flex-end/s);
-  assert.match(css, /\.diff-heading-side\s*\{[^}]*flex-wrap:\s*wrap/s);
+  assert.match(css, /\.compare-options\s*\{[^}]*flex-direction:\s*column/s);
+  assert.match(css, /\.segmented\s*\{[^}]*width:\s*100%/s);
+  assert.match(cssRule(".changes-heading"), /flex-wrap:\s*wrap/);
+  assert.match(cssRule(".view-options"), /flex-wrap:\s*wrap/);
+});
+
+test("offers the three whitespace modes as one segmented control", () => {
+  assert.match(page, /const WHITESPACE_MODES: readonly WhitespaceMode\[\] = \["none", "amount", "all"\]/);
+  assert.match(page, /aria-pressed=\{whitespace === mode\}/);
+  assert.match(page, /onClick=\{\(\) => setWhitespace\(mode\)\}/);
 });
 
 test("switches to a single unified column on narrow screens", () => {
@@ -83,7 +90,7 @@ test("defines dark colors for the system setting and for a manual choice", () =>
   assert.match(css, /@custom-variant dark/);
   const rules = css.slice(css.indexOf("body {"));
   assert.doesNotMatch(
-    rules.replace(/linear-gradient\(145deg, #4169e1, #2948b8\)/, ""),
+    rules,
     /#[0-9a-f]{3,6}\b/i,
     "component rules should use color tokens",
   );

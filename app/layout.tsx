@@ -10,16 +10,17 @@ const SITE_URL = "https://diff.hoshinoshion.com";
 
 const metadataByLocale = {
   en: {
-    title: "Text Diff Tool",
+    title: "Diff — Compare Two Texts",
     description:
-      "Compare two texts side by side in your browser and highlight additions, deletions, and changes.",
-    imageAlt: "Text Diff Tool comparing two texts side by side",
+      "Paste two versions of any text and see exactly what changed, line by line and word by word. Runs entirely in your browser.",
+    imageAlt: "Two versions of a recipe compared side by side, with each changed word highlighted",
     openGraphLocale: "en_US",
   },
   "zh-CN": {
-    title: "文本对比工具",
-    description: "在浏览器中并排比较两份文本，高亮显示新增、删除和修改的内容。",
-    imageAlt: "文本对比工具并排比较两份文本",
+    title: "Diff · 文本对比",
+    description:
+      "粘贴两个版本的文本，逐行、逐词标出改动。全部在浏览器本地完成，内容不会上传。",
+    imageAlt: "并排对比一份食谱的两个版本，每个改动的词都被高亮",
     openGraphLocale: "zh_CN",
   },
 };
@@ -27,8 +28,8 @@ const metadataByLocale = {
 export const viewport: Viewport = {
   colorScheme: "light dark",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f4f5f7" },
-    { media: "(prefers-color-scheme: dark)", color: "#0e131b" },
+    { media: "(prefers-color-scheme: light)", color: "#f5f2ea" },
+    { media: "(prefers-color-scheme: dark)", color: "#13120f" },
   ],
 };
 

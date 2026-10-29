@@ -19,8 +19,8 @@ const favicon = await readFile(
 );
 
 test("server-renders the browser or cookie language", () => {
-  assert.match(layout, /title:\s*"Text Diff Tool"/);
-  assert.match(layout, /title:\s*"文本对比工具"/);
+  assert.match(layout, /title:\s*"Diff — Compare Two Texts"/);
+  assert.match(layout, /title:\s*"Diff · 文本对比"/);
   assert.match(layout, /generateMetadata/);
   assert.match(layout, /<html lang=\{locale\} data-theme=\{theme \?\? undefined\}>/);
   assert.match(layout, /<LocaleProvider initialLocale=\{locale\}>/);
@@ -54,9 +54,8 @@ test("updates document language and metadata after a language change", () => {
   assert.match(page, /meta\[name="description"\]/);
 });
 
-test("uses the blue header mark as the favicon", () => {
-  assert.match(favicon, /<linearGradient id="brand"/);
-  assert.match(favicon, /#4169E1/);
-  assert.match(favicon, /#2948B8/);
-  assert.match(favicon, /stroke="white"/);
+test("uses the ink wordmark glyph as the favicon", () => {
+  assert.match(favicon, /fill="#1C1A16"/);
+  assert.match(favicon, /fill="#F2C3B8"/);
+  assert.match(favicon, /fill="#B6E0C6"/);
 });

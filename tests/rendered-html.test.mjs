@@ -46,10 +46,10 @@ async function renderPage(headers = {}) {
 test("renders English when the browser does not request Chinese", async () => {
   const html = await renderPage();
   assert.match(html, /<html[^>]+lang=["']en["']/i);
-  assert.match(html, /<title>Text Diff Tool<\/title>/i);
+  assert.match(html, /<title>Diff — Compare Two Texts<\/title>/i);
   assert.match(
     html,
-    /<meta(?=[^>]*\bname=["']description["'])(?=[^>]*\bcontent=["']Compare two texts side by side in your browser and highlight additions, deletions, and changes\.["'])[^>]*>/i,
+    /<meta(?=[^>]*\bname=["']description["'])(?=[^>]*\bcontent=["']Paste two versions of any text and see exactly what changed, line by line and word by word\. Runs entirely in your browser\.["'])[^>]*>/i,
   );
   assert.doesNotMatch(html, /\bname=["']codex-preview["']/i);
 });
@@ -60,12 +60,12 @@ test("server-renders Chinese for a Chinese browser", async () => {
   });
 
   assert.match(html, /<html[^>]+lang=["']zh-CN["']/i);
-  assert.match(html, /<title>文本对比工具<\/title>/i);
+  assert.match(html, /<title>Diff · 文本对比<\/title>/i);
   assert.match(
     html,
-    /<meta(?=[^>]*\bname=["']description["'])(?=[^>]*\bcontent=["']在浏览器中并排比较两份文本，高亮显示新增、删除和修改的内容。["'])[^>]*>/i,
+    /<meta(?=[^>]*\bname=["']description["'])(?=[^>]*\bcontent=["']粘贴两个版本的文本，逐行、逐词标出改动。全部在浏览器本地完成，内容不会上传。["'])[^>]*>/i,
   );
-  assert.match(html, />文本对比工具</);
+  assert.match(html, />改了哪里？</);
   assert.doesNotMatch(html, /<html[^>]+lang=["']en["']/i);
 });
 
@@ -76,7 +76,7 @@ test("manual language cookie overrides the browser language", async () => {
   });
 
   assert.match(html, /<html[^>]+lang=["']en["']/i);
-  assert.match(html, /<title>Text Diff Tool<\/title>/i);
+  assert.match(html, /<title>Diff — Compare Two Texts<\/title>/i);
 });
 
 test("sends security headers that keep pasted text in the browser", async () => {
