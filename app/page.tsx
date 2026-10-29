@@ -96,8 +96,7 @@ const translations = {
     title: "Diff — Compare Two Texts",
     description:
       "Paste two versions of any text and see exactly what changed, line by line and word by word. Runs entirely in your browser.",
-    headline: "What changed?",
-    lede: "Paste two versions of anything — a contract, an essay, a config file. Edits show up as you type, down to the word.",
+    headline: "Compare text",
     privacy: "Your text never leaves this browser.",
     languageLabel: "Language",
     switchToDark: "Use dark theme",
@@ -151,8 +150,7 @@ const translations = {
     title: "Diff · 文本对比",
     description:
       "粘贴两个版本的文本，逐行、逐词标出改动。全部在浏览器本地完成，内容不会上传。",
-    headline: "改了哪里？",
-    lede: "把两个版本粘贴进来——合同、文章、配置文件都行。改动随输入即时标出，精确到每个词。",
+    headline: "文本对比",
     privacy: "文本只在你的浏览器里处理，不会上传。",
     languageLabel: "语言",
     switchToDark: "切换到深色",
@@ -818,7 +816,6 @@ export default function Home() {
       <div className="page">
         <div className="intro">
           <h1>{t.headline}</h1>
-          <p>{t.lede}</p>
         </div>
 
         <section className="compare" aria-label={t.workspaceLabel}>

@@ -686,26 +686,17 @@ textarea:focus-visible {
 }
 
 .intro {
-  padding: 40px 0 28px;
-  max-width: 760px;
+  padding: 28px 0 20px;
 }
 
 .intro h1 {
   margin: 0;
   color: var(--ink);
   font-family: var(--font-serif);
-  font-size: clamp(36px, 5vw, 56px);
+  font-size: 30px;
   font-weight: 500;
-  line-height: 1.05;
-  letter-spacing: -0.025em;
-}
-
-.intro p {
-  margin: 14px 0 0;
-  color: var(--text-muted);
-  font-size: 16px;
-  line-height: 1.6;
-  text-wrap: pretty;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
 }
 
 /* Editors */
@@ -1423,11 +1414,11 @@ textarea:focus-visible {
   }
 
   .intro {
-    padding: 20px 0 20px;
+    padding: 16px 0;
   }
 
-  .intro p {
-    font-size: 15px;
+  .intro h1 {
+    font-size: 24px;
   }
 
   .sheets {

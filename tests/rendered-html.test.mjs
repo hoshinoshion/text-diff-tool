@@ -65,7 +65,7 @@ test("server-renders Chinese for a Chinese browser", async () => {
     html,
     /<meta(?=[^>]*\bname=["']description["'])(?=[^>]*\bcontent=["']粘贴两个版本的文本，逐行、逐词标出改动。全部在浏览器本地完成，内容不会上传。["'])[^>]*>/i,
   );
-  assert.match(html, />改了哪里？</);
+  assert.match(html, />文本对比</);
   assert.doesNotMatch(html, /<html[^>]+lang=["']en["']/i);
 });
 
