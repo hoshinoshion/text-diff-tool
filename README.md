@@ -21,7 +21,7 @@ Production URL: [diff.hoshinoshion.com](https://diff.hoshinoshion.com)
 - Synchronized editor heights, vertical scrolling, and result-pane horizontal scrolling
 - English and Simplified Chinese interface
 - Automatic browser-language detection with a persistent manual language switch
-- Fully local text processing: pasted content is never uploaded, and the Content Security Policy blocks connections to any other origin
+- Fully local text processing: pasted content is never uploaded, and the Content Security Policy blocks connections to every other origin except Cloudflare Web Analytics
 
 ## Requirements
 

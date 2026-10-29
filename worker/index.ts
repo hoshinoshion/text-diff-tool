@@ -11,16 +11,19 @@ interface ExecutionContext {
   passThroughOnException(): void;
 }
 
-// The page never needs to contact another origin, so the policy also
-// guarantees that pasted text cannot be sent anywhere. Next.js streams its
-// payload in inline scripts, which keeps 'unsafe-inline' necessary.
+// Besides Cloudflare Web Analytics, which Cloudflare injects into the page,
+// the page never contacts another origin, so pasted text cannot be sent
+// anywhere. Next.js streams its payload in inline scripts, which keeps
+// 'unsafe-inline' necessary.
+const CLOUDFLARE_ANALYTICS_SCRIPT = "https://static.cloudflareinsights.com";
+const CLOUDFLARE_ANALYTICS_ENDPOINT = "https://cloudflareinsights.com";
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  `script-src 'self' 'unsafe-inline' ${CLOUDFLARE_ANALYTICS_SCRIPT}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "font-src 'self'",
-  "connect-src 'self'",
+  `connect-src 'self' ${CLOUDFLARE_ANALYTICS_ENDPOINT}`,
   "worker-src 'self' blob:",
   "manifest-src 'self'",
   "object-src 'none'",
