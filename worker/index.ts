@@ -1,17 +1,9 @@
-/** Cloudflare Worker entry point for the vinext-starter template. */
-import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
+/// <reference types="vite/client" />
+/** Cloudflare Worker entry point. */
 import handler from "vinext/server/app-router-entry";
 
 interface Env {
-  ASSETS: Fetcher;
-  DB: D1Database;
-  IMAGES: {
-    input(stream: ReadableStream): {
-      transform(options: Record<string, unknown>): {
-        output(options: { format: string; quality: number }): Promise<{ response(): Response }>;
-      };
-    };
-  };
+  ASSETS: { fetch(request: Request): Promise<Response> };
 }
 
 interface ExecutionContext {
@@ -19,28 +11,56 @@ interface ExecutionContext {
   passThroughOnException(): void;
 }
 
-// Image security config. SVG sources with .svg extension auto-skip the
-// optimization endpoint on the client side (served directly, no proxy).
-// To route SVGs through the optimizer (with security headers), set
-// dangerouslyAllowSVG: true in next.config.js and uncomment below:
-// const imageConfig: ImageConfig = { dangerouslyAllowSVG: true };
+// The page never needs to contact another origin, so the policy also
+// guarantees that pasted text cannot be sent anywhere. Next.js streams its
+// payload in inline scripts, which keeps 'unsafe-inline' necessary.
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "font-src 'self'",
+  "connect-src 'self'",
+  "worker-src 'self' blob:",
+  "manifest-src 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+].join("; ");
+
+const SECURITY_HEADERS: Record<string, string> = {
+  "Content-Security-Policy": CONTENT_SECURITY_POLICY,
+  "Strict-Transport-Security": "max-age=31536000",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy":
+    "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
+  "Cross-Origin-Opener-Policy": "same-origin",
+};
+
+function withSecurityHeaders(response: Response) {
+  const secured = new Response(response.body, response);
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+    secured.headers.set(name, value);
+  }
+
+  if (secured.headers.get("content-type")?.startsWith("text/html")) {
+    // The page varies by the language and theme cookies, so browsers may keep
+    // it (which also allows the back/forward cache) but must revalidate it.
+    secured.headers.set("Cache-Control", "private, no-cache");
+    secured.headers.append("Vary", "Cookie, Accept-Language");
+  }
+
+  return secured;
+}
 
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const url = new URL(request.url);
-
-    if (url.pathname === "/_vinext/image") {
-      const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
-      return handleImageOptimization(request, {
-        fetchAsset: (path) => env.ASSETS.fetch(new Request(new URL(path, request.url))),
-        transformImage: async (body, { width, format, quality }) => {
-          const result = await env.IMAGES.input(body).transform(width > 0 ? { width } : {}).output({ format, quality });
-          return result.response();
-        },
-      }, allowedWidths);
-    }
-
-    return handler.fetch(request, env, ctx);
+    const response = await handler.fetch(request, env, ctx);
+    // The Vite dev server needs inline module scripts and a WebSocket that
+    // this policy would block.
+    return import.meta.env.PROD ? withSecurityHeaders(response) : response;
   },
 };
 

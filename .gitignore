@@ -37,7 +37,6 @@ yarn-error.log*
 next-env.d.ts
 /dist/
 /.wrangler/
-/.sites-runtime/
-/outputs/
-/work/
-/.openai/hosting.json
+
+# typescript incremental build
+*.tsbuildinfo
