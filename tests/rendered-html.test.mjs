@@ -16,6 +16,16 @@ const ctx = {
   passThroughOnException() {},
 };
 
+async function requestPage(headers = {}) {
+  return worker.fetch(
+    new Request("http://localhost/", {
+      headers: { accept: "text/html", ...headers },
+    }),
+    env,
+    ctx,
+  );
+}
+
 async function renderPage(headers = {}) {
   const response = await worker.fetch(
     new Request("http://localhost/", {
@@ -67,4 +77,34 @@ test("manual language cookie overrides the browser language", async () => {
 
   assert.match(html, /<html[^>]+lang=["']en["']/i);
   assert.match(html, /<title>Text Diff Tool<\/title>/i);
+});
+
+test("sends security headers that keep pasted text in the browser", async () => {
+  const response = await requestPage();
+  const policy = response.headers.get("content-security-policy") ?? "";
+
+  assert.match(policy, /default-src 'self'/);
+  assert.match(policy, /connect-src 'self'/);
+  assert.match(policy, /frame-ancestors 'none'/);
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(response.headers.get("cache-control"), "private, no-cache");
+  assert.match(response.headers.get("vary") ?? "", /Cookie/);
+});
+
+test("renders sharing metadata and structured data", async () => {
+  const html = await renderPage();
+
+  assert.match(html, /<link[^>]+rel="canonical"[^>]+href="https:\/\/diff\.hoshinoshion\.com\/"/);
+  assert.match(html, /<meta[^>]+property="og:image"[^>]+content="https:\/\/diff\.hoshinoshion\.com\/og-image\.png"/);
+  assert.match(html, /<meta[^>]+name="twitter:card"[^>]+content="summary_large_image"/);
+  assert.match(html, /<meta[^>]+name="theme-color"/);
+  assert.match(html, /application\/ld\+json/);
+});
+
+test("server-renders the saved theme", async () => {
+  assert.match(
+    await renderPage({ cookie: "text-diff-tool-theme=dark" }),
+    /<html[^>]+data-theme="dark"/,
+  );
+  assert.doesNotMatch(await renderPage(), /<html[^>]+data-theme=/);
 });

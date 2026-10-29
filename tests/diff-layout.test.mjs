@@ -28,15 +28,10 @@ test("keeps no-wrap results in two fixed parallel panes", () => {
 });
 
 test("wires horizontal scrolling in both directions", () => {
-  assert.match(page, /ref=\{leftDiffPane\}/);
-  assert.match(page, /ref=\{rightDiffPane\}/);
+  assert.match(page, /ref=\{side === "left" \? leftDiffPane : rightDiffPane\}/);
   assert.match(
     page,
-    /syncDiffScroll\(event\.currentTarget,\s*rightDiffPane\.current\)/,
-  );
-  assert.match(
-    page,
-    /syncDiffScroll\(event\.currentTarget,\s*leftDiffPane\.current\)/,
+    /side === "left" \? rightDiffPane\.current : leftDiffPane\.current/,
   );
   assert.match(page, /target\.scrollLeft\s*=\s*source\.scrollLeft/);
 });
@@ -66,5 +61,30 @@ test("wraps the controls cleanly on narrow screens", () => {
   assert.match(css, /@media \(max-width: 420px\)/);
   assert.match(css, /\.toolbar\s*\{[^}]*flex-direction:\s*column/s);
   assert.match(css, /\.toolbar-options\s*\{[^}]*justify-content:\s*flex-end/s);
-  assert.match(css, /\.diff-heading\s*\{[^}]*flex-wrap:\s*wrap/s);
+  assert.match(css, /\.diff-heading-side\s*\{[^}]*flex-wrap:\s*wrap/s);
+});
+
+test("switches to a single unified column on narrow screens", () => {
+  assert.match(page, /const NARROW_SCREEN_QUERY = "\(max-width: 760px\)"/);
+  assert.match(page, /unified=\{narrowScreen\}/);
+  assert.match(cssRule(".unified-line"), /grid-template-columns:\s*38px 38px 20px/);
+  assert.match(cssRule(".unified-line-removed .line-marker"), /var\(--removed-text\)/);
+});
+
+test("folds unchanged lines automatically for long results and on request", () => {
+  assert.match(page, /foldPreference \?\? rows\.length > AUTO_FOLD_ROW_THRESHOLD/);
+  assert.match(page, /buildDisplayItems\(rows, foldUnchanged, expandedFolds\)/);
+  assert.match(cssRule(".diff-fold-row"), /grid-column:\s*1 \/ -1/);
+});
+
+test("defines dark colors for the system setting and for a manual choice", () => {
+  assert.match(css, /@media \(prefers-color-scheme: dark\)\s*\{\s*:root:not\(\[data-theme="light"\]\)/);
+  assert.match(css, /:root\[data-theme="dark"\]\s*\{/);
+  assert.match(css, /@custom-variant dark/);
+  const rules = css.slice(css.indexOf("body {"));
+  assert.doesNotMatch(
+    rules.replace(/linear-gradient\(145deg, #4169e1, #2948b8\)/, ""),
+    /#[0-9a-f]{3,6}\b/i,
+    "component rules should use color tokens",
+  );
 });

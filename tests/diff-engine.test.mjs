@@ -17,7 +17,14 @@ after(async () => {
   await vite.close();
 });
 
-const { buildRows, countText, inlineDiff, splitGraphemes } =
+const {
+  buildRows,
+  computeDiff,
+  countText,
+  graphemeDiff,
+  inlineDiff,
+  splitGraphemes,
+} =
   await vite.ssrLoadModule("/lib/diff.ts");
 
 function changedRows(rows) {
@@ -92,7 +99,7 @@ test("keeps a single insertion aligned in documents above the old size limit", (
   const rightLines = leftLines.slice();
   rightLines.splice(1, 0, "INSERTED");
 
-  const rows = buildRows(leftLines.join("\n"), rightLines.join("\n"), false);
+  const rows = buildRows(leftLines.join("\n"), rightLines.join("\n"), "none");
   const changes = changedRows(rows);
 
   assert.equal(changes.length, 1);
@@ -114,7 +121,7 @@ test("aligns multiple distant edits in a large document", () => {
 
   const leftText = leftLines.join("\n");
   const rightText = rightLines.join("\n");
-  const rows = buildRows(leftText, rightText, false);
+  const rows = buildRows(leftText, rightText, "none");
   const changes = changedRows(rows);
 
   assert.equal(changes.filter((row) => row.left).length, 2);
@@ -131,7 +138,7 @@ test("aligns an insertion when every line changes beyond the full-matrix limit",
   const rightLines = leftLines.map((line) => line.replace("旧值", "新值"));
   rightLines.unshift("inserted-heading | 这是新增标题");
 
-  const rows = buildRows(leftLines.join("\n"), rightLines.join("\n"), false);
+  const rows = buildRows(leftLines.join("\n"), rightLines.join("\n"), "none");
 
   assert.equal(rows.length, 601);
   assert.equal(rows[0].left, null);
@@ -146,7 +153,7 @@ test("preserves both original lines when whitespace is ignored", () => {
   const rows = buildRows(
     "alpha    beta\n\t缩进\n旧值",
     "alpha beta\n  缩进\n新值",
-    true,
+    "amount",
   );
 
   assert.equal(rows[0].kind, "same");
@@ -160,7 +167,7 @@ test("preserves both original lines when whitespace is ignored", () => {
 test("reconstructs both sides when repeated lines surround a change", () => {
   const leftText = "header\nrepeat\nold\nrepeat\ntail";
   const rightText = "header\nrepeat\nnew\nrepeat\ntail";
-  const rows = buildRows(leftText, rightText, false);
+  const rows = buildRows(leftText, rightText, "none");
 
   assert.equal(changedRows(rows).length, 1);
   assert.equal(reconstruct(rows, "left"), leftText);
@@ -227,7 +234,7 @@ test("keeps a newly inserted blank line aligned in the preset comparison", () =>
 
 将原始文本粘贴到左侧，然后在右侧粘贴修改后的版本。
 差异结果会实时更新。`;
-  const rows = buildRows(leftText, rightText, false);
+  const rows = buildRows(leftText, rightText, "none");
 
   assert.equal(rows[0].left.text, leftText.split("\n")[0]);
   assert.equal(rows[0].right.text, rightText.split("\n")[0]);
@@ -241,7 +248,7 @@ test("keeps a newly inserted blank line aligned in the preset comparison", () =>
   assert.equal(reconstruct(rows, "left"), leftText);
   assert.equal(reconstruct(rows, "right"), rightText);
 
-  const swappedRows = buildRows(rightText, leftText, false);
+  const swappedRows = buildRows(rightText, leftText, "none");
   assert.equal(swappedRows[1].left.text, "");
   assert.equal(swappedRows[1].right, null);
   assert.equal(swappedRows[2].left.text, rightText.split("\n")[2]);
@@ -253,7 +260,7 @@ test("keeps a newly inserted blank line aligned in the preset comparison", () =>
 test("normalizes equivalent Unicode while preserving original spelling", () => {
   const leftText = "café\n开发者👩‍💻";
   const rightText = "cafe\u0301\n开发者👩‍💻";
-  const rows = buildRows(leftText, rightText, false);
+  const rows = buildRows(leftText, rightText, "none");
 
   assert.equal(changedRows(rows).length, 0);
   assert.equal(rows[0].left.text, "café");
@@ -268,7 +275,7 @@ test("normalizes equivalent Unicode while preserving original spelling", () => {
 test("keeps blank lines and trailing newlines aligned", () => {
   const leftText = "第一行\n\n第三行\n";
   const rightText = "第一行\n新增内容\n第三行\n";
-  const rows = buildRows(leftText, rightText, false);
+  const rows = buildRows(leftText, rightText, "none");
   const changes = changedRows(rows);
 
   assert.equal(changes.length, 1);
@@ -327,7 +334,7 @@ test("aligns sparse changes in a huge repetition-heavy document", () => {
 
   const leftText = leftLines.join("\n");
   const rightText = rightLines.join("\n");
-  const rows = buildRows(leftText, rightText, false);
+  const rows = buildRows(leftText, rightText, "none");
   const changes = changedRows(rows);
 
   assert.equal(changes.length, 2);
@@ -346,7 +353,7 @@ test("aligns insertion and deletion in a huge repetition-heavy document", () => 
 
   const leftText = leftLines.join("\n");
   const rightText = rightLines.join("\n");
-  const rows = buildRows(leftText, rightText, false);
+  const rows = buildRows(leftText, rightText, "none");
   const changes = changedRows(rows);
 
   assert.equal(changes.filter((row) => row.left).length, 1);
@@ -364,17 +371,17 @@ test("counts user-perceived characters instead of UTF-16 code units", () => {
 test("handles a huge paste against an empty or tiny other side", () => {
   const huge = Array.from({ length: 200_000 }, (_, index) => `line ${index}`).join("\n");
 
-  const fromEmpty = buildRows("", huge, false);
+  const fromEmpty = buildRows("", huge, "none");
   assert.equal(fromEmpty.length, 200_000);
   assert.equal(reconstruct(fromEmpty, "right"), huge);
 
-  const fromOneLine = buildRows("x", huge, false);
+  const fromOneLine = buildRows("x", huge, "none");
   assert.equal(reconstruct(fromOneLine, "left"), "x");
   assert.equal(reconstruct(fromOneLine, "right"), huge);
 });
 
 test("normalizes Windows and classic Mac line endings", () => {
-  const rows = buildRows("a\r\nb\rc", "a\nb\nc", false);
+  const rows = buildRows("a\r\nb\rc", "a\nb\nc", "none");
   assert.equal(changedRows(rows).length, 0);
   assert.deepEqual(
     rows.map((row) => row.left.text),
@@ -421,7 +428,7 @@ test("fuzzes random line insertions, deletions, edits, and Unicode content", () 
 
     const leftText = leftLines.join("\n");
     const rightText = rightLines.join("\n");
-    const rows = buildRows(leftText, rightText, false);
+    const rows = buildRows(leftText, rightText, "none");
 
     assert.equal(reconstruct(rows, "left"), leftText, `left seed ${seed}`);
     assert.equal(reconstruct(rows, "right"), rightText, `right seed ${seed}`);
@@ -466,7 +473,7 @@ test("fuzzes inline diffs against an exact grapheme LCS", () => {
       ).join("");
     const leftText = makeText(leftLength);
     const rightText = makeText(rightLength);
-    const segments = inlineDiff(leftText, rightText);
+    const segments = graphemeDiff(leftText, rightText);
     const expectedLcs = exactLcsLength(
       normalizedGraphemes(leftText),
       normalizedGraphemes(rightText),
@@ -515,7 +522,7 @@ test("fuzzes the bounded inline path with long edited strings", () => {
 
     const leftText = left.join("");
     const rightText = right.join("");
-    const segments = inlineDiff(leftText, rightText);
+    const segments = graphemeDiff(leftText, rightText);
     const expectedLcs = exactLcsLength(left, right);
 
     assert.equal(segments.left.map((segment) => segment.text).join(""), leftText);
@@ -523,4 +530,79 @@ test("fuzzes the bounded inline path with long edited strings", () => {
     assert.equal(sameGraphemeCount(segments.left), expectedLcs, `long seed ${seed}`);
     assert.equal(sameGraphemeCount(segments.right), expectedLcs, `long right seed ${seed}`);
   }
+});
+
+test("highlights whole English words but single Chinese characters", () => {
+  const english = inlineDiff(
+    "helps you quickly spot differences",
+    "helps you quickly find every difference",
+  );
+  assert.deepEqual(
+    english.left.filter((segment) => segment.kind === "removed").map((segment) => segment.text),
+    ["spot", "differences"],
+  );
+  assert.deepEqual(
+    english.right.filter((segment) => segment.kind === "added").map((segment) => segment.text),
+    ["find", "every difference"],
+  );
+
+  const plural = inlineDiff("two differences here", "two difference here");
+  assert.equal(changedText(plural.left, "removed"), "s");
+  assert.equal(changedText(plural.right, "added"), "");
+
+  const unrelated = inlineDiff("processed locally in", "processed only in");
+  assert.equal(changedText(unrelated.left, "removed"), "locally");
+  assert.equal(changedText(unrelated.right, "added"), "only");
+
+  const chinese = inlineDiff("用颜色标记被删除的部分", "用颜色清晰标记被新增的部分");
+  assert.equal(changedText(chinese.left, "removed"), "删除");
+  assert.equal(changedText(chinese.right, "added"), "清晰新增");
+});
+
+test("keeps inline segments lossless for mixed text", () => {
+  const random = createRandom(7);
+  const pieces = ["word", "Wort", " ", "  ", "中", "文", "，", ".", "x_y", "🙂", "é", "123"];
+  for (let seed = 0; seed < 200; seed += 1) {
+    const make = () =>
+      Array.from({ length: 1 + Math.floor(random() * 14) }, () =>
+        pieces[Math.floor(random() * pieces.length)],
+      ).join("");
+    const leftText = make();
+    const rightText = make();
+    for (const mode of ["none", "amount", "all"]) {
+      const segments = inlineDiff(leftText, rightText, mode);
+      assert.equal(segments.left.map((segment) => segment.text).join(""), leftText);
+      assert.equal(segments.right.map((segment) => segment.text).join(""), rightText);
+      assert.equal(segments.left.some((segment) => segment.kind === "added"), false);
+      assert.equal(segments.right.some((segment) => segment.kind === "removed"), false);
+    }
+  }
+});
+
+test("separates ignoring whitespace amount from ignoring all whitespace", () => {
+  const left = "a  b\n\tindented\nab\nend";
+  const right = "a b \n  indented\na b\nend";
+
+  assert.equal(changedRows(buildRows(left, right, "none")).length, 3);
+
+  const amount = buildRows(left, right, "amount");
+  assert.deepEqual(
+    changedRows(amount).map((row) => [row.left?.text ?? null, row.right?.text ?? null]),
+    [["ab", "a b"]],
+  );
+
+  assert.equal(changedRows(buildRows(left, right, "all")).length, 0);
+  assert.equal(changedRows(buildRows(" lead", "lead", "amount")).length, 1);
+});
+
+test("computes statistics, counts, and inline segments together", () => {
+  const result = computeDiff("same\nold line\ngone", "same\nnew line", "none");
+
+  assert.equal(result.changedRows, 2);
+  assert.equal(result.removedLines, 2);
+  assert.equal(result.addedLines, 1);
+  assert.deepEqual(result.leftCount, { lines: 3, characters: 18 });
+  assert.equal(result.rows[0].segments, null);
+  assert.equal(changedText(result.rows[1].segments.left, "removed"), "old");
+  assert.equal(changedText(result.rows[1].segments.right, "added"), "new");
 });
