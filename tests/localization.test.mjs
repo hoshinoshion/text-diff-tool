@@ -22,7 +22,7 @@ test("server-renders the browser or cookie language", () => {
   assert.match(layout, /title:\s*"Text Diff Tool"/);
   assert.match(layout, /title:\s*"文本对比工具"/);
   assert.match(layout, /generateMetadata/);
-  assert.match(layout, /<html lang=\{locale\}>/);
+  assert.match(layout, /<html lang=\{locale\} data-theme=\{theme \?\? undefined\}>/);
   assert.match(layout, /<LocaleProvider initialLocale=\{locale\}>/);
   assert.match(requestLocale, /cookies\(\)/);
   assert.match(requestLocale, /headers\(\)/);

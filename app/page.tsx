@@ -3,7 +3,6 @@
 import {
   memo,
   useCallback,
-  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -13,11 +12,15 @@ import {
 import {
   ArrowLeftRight,
   Check,
+  ChevronsUpDown,
   Copy,
   Eraser,
   FileDiff,
   Languages,
+  LoaderCircle,
   LockKeyhole,
+  Moon,
+  Sun,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -25,21 +28,33 @@ import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
 import { useInitialLocale } from "@/app/locale-provider";
+import { useInitialTheme } from "@/app/theme-provider";
+import { useDiff } from "@/app/use-diff";
 import {
-  buildRows,
-  countText,
-  inlineDiff,
-  type DiffRow,
+  type DetailedRow,
   type Segment,
+  type TextCount,
+  type WhitespaceMode,
 } from "@/lib/diff";
+import {
+  AUTO_FOLD_ROW_THRESHOLD,
+  buildDisplayItems,
+  type DisplayItem,
+} from "@/lib/diff-view";
 import {
   isLocale,
   LANGUAGE_COOKIE_KEY,
   LANGUAGE_STORAGE_KEY,
   type Locale,
 } from "@/lib/locale";
+import { THEME_COOKIE_KEY, type Theme } from "@/lib/theme";
 
 const LANGUAGE_CHANGE_EVENT = "text-diff-tool-language-change";
+const THEME_CHANGE_EVENT = "text-diff-tool-theme-change";
+const NARROW_SCREEN_QUERY = "(max-width: 760px)";
+const DARK_SCHEME_QUERY = "(prefers-color-scheme: dark)";
+// Rendering is the slow part for huge results, so rows appear in batches.
+const RENDER_BATCH_SIZE = 1_500;
 let sessionLocale: Locale | null = null;
 
 const PRESET_TEXTS: Record<Locale, { left: string; right: string }> = {
@@ -79,11 +94,19 @@ const translations = {
     tagline: "Paste two texts and see every change instantly",
     privacy: "Processed only in this browser",
     languageLabel: "Language",
+    switchToDark: "Switch to dark theme",
+    switchToLight: "Switch to light theme",
     workspaceLabel: "Text comparison workspace",
     swap: "Swap sides",
     clear: "Clear",
-    ignoreWhitespace: "Ignore whitespace",
+    ignoreWhitespaceAmount: "Ignore whitespace changes",
+    ignoreWhitespaceAmountTitle:
+      "Treat runs of spaces and tabs as equal and ignore trailing whitespace",
+    ignoreAllWhitespace: "Ignore all whitespace",
+    ignoreAllWhitespaceTitle: "Ignore every space, tab, and other whitespace",
     wrapLines: "Wrap lines",
+    foldUnchanged: "Collapse unchanged",
+    foldUnchangedTitle: "Hide unchanged lines except a few around each change",
     original: "Original text",
     revised: "Revised text",
     clearOriginal: "Clear original text",
@@ -96,8 +119,9 @@ const translations = {
     revisedPlaceholder: "Paste the revised text here…",
     diffResult: "Diff result",
     diffDescription:
-      "Light colors mark changed lines; darker colors mark the exact changed text",
+      "Light colors mark changed lines; darker colors mark the changed words (characters in Chinese)",
     diffStatsLabel: "Diff statistics",
+    computing: "Comparing…",
     waiting: "Waiting for text",
     waitingDescription: "Paste the content to compare into the two panels above.",
     identical: "The two texts are identical",
@@ -110,6 +134,10 @@ const translations = {
       }`,
     changedLines: (count: number) =>
       `${count} changed ${count === 1 ? "line" : "lines"}`,
+    showFolded: (count: number) =>
+      `Show ${count} unchanged ${count === 1 ? "line" : "lines"}`,
+    showMore: (count: number) =>
+      `Show more (${count} ${count === 1 ? "row" : "rows"} remaining)`,
   },
   "zh-CN": {
     title: "文本对比工具",
@@ -117,11 +145,18 @@ const translations = {
     tagline: "粘贴两份文本，立即看见每一处变化",
     privacy: "仅在当前浏览器中处理",
     languageLabel: "语言",
+    switchToDark: "切换到深色模式",
+    switchToLight: "切换到浅色模式",
     workspaceLabel: "文本对比工作区",
     swap: "交换两侧",
     clear: "清空",
-    ignoreWhitespace: "忽略空白",
+    ignoreWhitespaceAmount: "忽略空白数量变化",
+    ignoreWhitespaceAmountTitle: "连续的空格和制表符视为相同，并忽略行尾空白",
+    ignoreAllWhitespace: "忽略所有空白",
+    ignoreAllWhitespaceTitle: "忽略所有空格、制表符等空白字符",
     wrapLines: "自动换行",
+    foldUnchanged: "折叠未变化的行",
+    foldUnchangedTitle: "隐藏未变化的行，只保留每处变化前后的几行",
     original: "原始文本",
     revised: "修改后文本",
     clearOriginal: "清空原始文本",
@@ -133,8 +168,9 @@ const translations = {
     originalPlaceholder: "在这里粘贴原始文本…",
     revisedPlaceholder: "在这里粘贴修改后的文本…",
     diffResult: "差异结果",
-    diffDescription: "浅色标记整行变化，深色标记具体变化的文字",
+    diffDescription: "浅色标记整行变化，深色标记具体变化的词语（中文按字符）",
     diffStatsLabel: "差异统计",
+    computing: "正在对比…",
     waiting: "等待文本",
     waitingDescription: "将需要比较的内容粘贴到上方左右两侧。",
     identical: "两份文本完全一致",
@@ -144,8 +180,12 @@ const translations = {
     textCount: (lines: number, characters: number) =>
       `${lines} 行 · ${characters} 字符`,
     changedLines: (count: number) => `${count} 行差异`,
+    showFolded: (count: number) => `显示 ${count} 行未变化的内容`,
+    showMore: (count: number) => `显示更多（还有 ${count} 行）`,
   },
 } satisfies Record<Locale, Record<string, unknown>>;
+
+type Translation = (typeof translations)[Locale];
 
 function getPreferredLocale(): Locale {
   try {
@@ -180,6 +220,32 @@ function subscribeToLocale(onStoreChange: () => void) {
   };
 }
 
+function getEffectiveTheme(): Theme {
+  const chosenTheme = document.documentElement.dataset.theme;
+  if (chosenTheme === "light" || chosenTheme === "dark") return chosenTheme;
+  return window.matchMedia(DARK_SCHEME_QUERY).matches ? "dark" : "light";
+}
+
+function subscribeToTheme(onStoreChange: () => void) {
+  const query = window.matchMedia(DARK_SCHEME_QUERY);
+  query.addEventListener("change", onStoreChange);
+  window.addEventListener(THEME_CHANGE_EVENT, onStoreChange);
+  return () => {
+    query.removeEventListener("change", onStoreChange);
+    window.removeEventListener(THEME_CHANGE_EVENT, onStoreChange);
+  };
+}
+
+function isNarrowScreen() {
+  return window.matchMedia(NARROW_SCREEN_QUERY).matches;
+}
+
+function subscribeToScreenWidth(onStoreChange: () => void) {
+  const query = window.matchMedia(NARROW_SCREEN_QUERY);
+  query.addEventListener("change", onStoreChange);
+  return () => query.removeEventListener("change", onStoreChange);
+}
+
 function TextSegments({ segments }: { segments: Segment[] }) {
   return segments.map((segment, index) => (
     <span key={`${segment.kind}-${index}`} className={`token-${segment.kind}`}>
@@ -188,15 +254,19 @@ function TextSegments({ segments }: { segments: Segment[] }) {
   ));
 }
 
-function DiffLineCell({
-  row,
-  side,
+function LineText({
+  text,
   segments,
 }: {
-  row: DiffRow;
-  side: "left" | "right";
-  segments: ReturnType<typeof inlineDiff> | null;
+  text: string;
+  segments: Segment[] | null | undefined;
 }) {
+  return (
+    <code>{segments ? <TextSegments segments={segments} /> : text || " "}</code>
+  );
+}
+
+function DiffLineCell({ row, side }: { row: DetailedRow; side: "left" | "right" }) {
   const line = row[side];
   const marker = side === "left" ? "−" : "+";
 
@@ -210,31 +280,116 @@ function DiffLineCell({
       <span className="line-marker" aria-hidden="true">
         {row.kind === "changed" && line ? marker : ""}
       </span>
-      <code>
-        {line ? (
-          segments ? (
-            <TextSegments segments={segments[side]} />
-          ) : (
-            line.text || " "
-          )
-        ) : (
-          " "
-        )}
-      </code>
+      {line ? (
+        <LineText text={line.text} segments={row.segments?.[side]} />
+      ) : (
+        <code> </code>
+      )}
     </div>
   );
 }
 
-const DiffTable = memo(function DiffTable({
-  detailedRows,
-  wrapLines,
-  originalLabel,
-  revisedLabel,
+function FoldButton({
+  item,
+  label,
+  onExpand,
 }: {
-  detailedRows: { row: DiffRow; segments: ReturnType<typeof inlineDiff> | null }[];
+  item: Extract<DisplayItem, { type: "fold" }>;
+  label: string;
+  onExpand: (key: string) => void;
+}) {
+  return (
+    <button type="button" className="diff-fold" onClick={() => onExpand(item.key)}>
+      <ChevronsUpDown size={13} aria-hidden="true" />
+      {label}
+    </button>
+  );
+}
+
+function UnifiedLine({
+  kind,
+  leftNumber,
+  rightNumber,
+  text,
+  segments,
+}: {
+  kind: "same" | "removed" | "added";
+  leftNumber: number | null;
+  rightNumber: number | null;
+  text: string;
+  segments: Segment[] | null | undefined;
+}) {
+  return (
+    <div className={`unified-line unified-line-${kind}`}>
+      <span className="line-number">{leftNumber ?? ""}</span>
+      <span className="line-number">{rightNumber ?? ""}</span>
+      <span className="line-marker" aria-hidden="true">
+        {kind === "removed" ? "−" : kind === "added" ? "+" : ""}
+      </span>
+      <LineText text={text} segments={segments} />
+    </div>
+  );
+}
+
+function UnifiedRow({ row }: { row: DetailedRow }) {
+  if (row.kind === "same") {
+    return (
+      <UnifiedLine
+        kind="same"
+        leftNumber={row.left?.number ?? null}
+        rightNumber={row.right?.number ?? null}
+        text={row.right?.text ?? row.left?.text ?? ""}
+        segments={null}
+      />
+    );
+  }
+
+  return (
+    <>
+      {row.left ? (
+        <UnifiedLine
+          kind="removed"
+          leftNumber={row.left.number}
+          rightNumber={null}
+          text={row.left.text}
+          segments={row.segments?.left}
+        />
+      ) : null}
+      {row.right ? (
+        <UnifiedLine
+          kind="added"
+          leftNumber={null}
+          rightNumber={row.right.number}
+          text={row.right.text}
+          segments={row.segments?.right}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function itemKey(item: DisplayItem) {
+  return item.type === "row" ? `row-${item.index}` : `fold-${item.key}`;
+}
+
+const DiffTable = memo(function DiffTable({
+  rows,
+  items,
+  hiddenItemCount,
+  wrapLines,
+  unified,
+  t,
+  onExpandFold,
+  onShowMore,
+}: {
+  rows: DetailedRow[];
+  items: DisplayItem[];
+  hiddenItemCount: number;
   wrapLines: boolean;
-  originalLabel: string;
-  revisedLabel: string;
+  unified: boolean;
+  t: Translation;
+  onExpandFold: (key: string) => void;
+  onShowMore: () => void;
 }) {
   const leftDiffPane = useRef<HTMLDivElement>(null);
   const rightDiffPane = useRef<HTMLDivElement>(null);
@@ -252,81 +407,152 @@ const DiffTable = memo(function DiffTable({
     });
   };
 
+  const foldButton = (item: Extract<DisplayItem, { type: "fold" }>) => (
+    <FoldButton
+      item={item}
+      label={t.showFolded(item.end - item.start)}
+      onExpand={onExpandFold}
+    />
+  );
+
+  const showMore =
+    hiddenItemCount > 0 ? (
+      <button type="button" className="diff-show-more" onClick={onShowMore}>
+        {t.showMore(hiddenItemCount)}
+      </button>
+    ) : null;
+
+  const wrapClass = wrapLines ? "wrap-lines" : "no-wrap-lines";
+
+  if (unified) {
+    return (
+      <div className={`diff-table unified-view ${wrapClass}`}>
+        <div className="unified-scroll">
+          <div className="unified-content">
+            {items.map((item) =>
+              item.type === "row" ? (
+                <UnifiedRow key={itemKey(item)} row={rows[item.index]} />
+              ) : (
+                <div className="unified-fold" key={itemKey(item)}>
+                  {foldButton(item)}
+                </div>
+              ),
+            )}
+          </div>
+        </div>
+        {showMore}
+      </div>
+    );
+  }
+
   return (
-    <div className={`diff-table ${wrapLines ? "wrap-lines" : "no-wrap-lines"}`}>
+    <div className={`diff-table ${wrapClass}`}>
       {wrapLines ? (
         <div className="diff-scroll">
           <div className="diff-rows">
             <div className="diff-column-labels" aria-hidden="true">
-              <span>{originalLabel}</span>
-              <span>{revisedLabel}</span>
+              <span>{t.original}</span>
+              <span>{t.revised}</span>
             </div>
-            {detailedRows.map(({ row, segments }, index) => (
-              <div className={`diff-row diff-row-${row.kind}`} key={index}>
-                <DiffLineCell row={row} side="left" segments={segments} />
-                <DiffLineCell row={row} side="right" segments={segments} />
-              </div>
-            ))}
+            {items.map((item) =>
+              item.type === "row" ? (
+                <div
+                  className={`diff-row diff-row-${rows[item.index].kind}`}
+                  key={itemKey(item)}
+                >
+                  <DiffLineCell row={rows[item.index]} side="left" />
+                  <DiffLineCell row={rows[item.index]} side="right" />
+                </div>
+              ) : (
+                <div className="diff-fold-row" key={itemKey(item)}>
+                  {foldButton(item)}
+                </div>
+              ),
+            )}
           </div>
         </div>
       ) : (
         <div className="parallel-diff">
-          <div className="diff-pane-group">
-            <div className="diff-pane-label">{originalLabel}</div>
-            <div
-              className="diff-pane"
-              ref={leftDiffPane}
-              onScroll={(event) =>
-                syncDiffScroll(event.currentTarget, rightDiffPane.current)
-              }
-            >
-              <div className="diff-pane-content">
-                {detailedRows.map(({ row, segments }, index) => (
-                  <div className={`diff-pane-row diff-row-${row.kind}`} key={index}>
-                    <DiffLineCell row={row} side="left" segments={segments} />
-                  </div>
-                ))}
+          {(["left", "right"] as const).map((side) => (
+            <div className="diff-pane-group" key={side}>
+              <div className="diff-pane-label">
+                {side === "left" ? t.original : t.revised}
+              </div>
+              <div
+                className="diff-pane"
+                ref={side === "left" ? leftDiffPane : rightDiffPane}
+                onScroll={(event) =>
+                  syncDiffScroll(
+                    event.currentTarget,
+                    side === "left" ? rightDiffPane.current : leftDiffPane.current,
+                  )
+                }
+              >
+                <div className="diff-pane-content">
+                  {items.map((item) =>
+                    item.type === "row" ? (
+                      <div
+                        className={`diff-pane-row diff-row-${rows[item.index].kind}`}
+                        key={itemKey(item)}
+                      >
+                        <DiffLineCell row={rows[item.index]} side={side} />
+                      </div>
+                    ) : (
+                      <div className="diff-fold-row" key={itemKey(item)}>
+                        {foldButton(item)}
+                      </div>
+                    ),
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-          <div className="diff-pane-group">
-            <div className="diff-pane-label">{revisedLabel}</div>
-            <div
-              className="diff-pane"
-              ref={rightDiffPane}
-              onScroll={(event) =>
-                syncDiffScroll(event.currentTarget, leftDiffPane.current)
-              }
-            >
-              <div className="diff-pane-content">
-                {detailedRows.map(({ row, segments }, index) => (
-                  <div className={`diff-pane-row diff-row-${row.kind}`} key={index}>
-                    <DiffLineCell row={row} side="right" segments={segments} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+          ))}
         </div>
       )}
+      {showMore}
     </div>
   );
 });
 
+function CountLabel({ count, t }: { count: TextCount | undefined; t: Translation }) {
+  return <span>{count ? t.textCount(count.lines, count.characters) : "…"}</span>;
+}
+
 export default function Home() {
   const initialLocale = useInitialLocale();
+  const initialTheme = useInitialTheme();
   const getServerLocale = useCallback(() => initialLocale, [initialLocale]);
+  const getServerTheme = useCallback(
+    () => initialTheme ?? "light",
+    [initialTheme],
+  );
   const locale = useSyncExternalStore(
     subscribeToLocale,
     getPreferredLocale,
     getServerLocale,
   );
+  const theme = useSyncExternalStore(
+    subscribeToTheme,
+    getEffectiveTheme,
+    getServerTheme,
+  );
+  const narrowScreen = useSyncExternalStore(
+    subscribeToScreenWidth,
+    isNarrowScreen,
+    () => false,
+  );
   const [editedTexts, setEditedTexts] = useState<{
     left: string;
     right: string;
   } | null>(null);
-  const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
+  const [ignoreWhitespaceAmount, setIgnoreWhitespaceAmount] = useState(false);
+  const [ignoreAllWhitespace, setIgnoreAllWhitespace] = useState(false);
   const [wrapLines, setWrapLines] = useState(true);
+  const [foldPreference, setFoldPreference] = useState<boolean | null>(null);
+  const [expandedFolds, setExpandedFolds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [renderLimit, setRenderLimit] = useState(RENDER_BATCH_SIZE);
   const [copied, setCopied] = useState<"left" | "right" | null>(null);
   const copiedTimer = useRef<number | undefined>(undefined);
   const [editorHeight, setEditorHeight] = useState<number | null>(null);
@@ -336,6 +562,11 @@ export default function Home() {
   const rightEditor = useRef<HTMLTextAreaElement>(null);
   const t = translations[locale];
   const { left: leftText, right: rightText } = editedTexts ?? PRESET_TEXTS[locale];
+  const whitespace: WhitespaceMode = ignoreAllWhitespace
+    ? "all"
+    : ignoreWhitespaceAmount
+      ? "amount"
+      : "none";
 
   const setLeftText = (text: string) => {
     setEditedTexts((currentTexts) => ({
@@ -351,32 +582,26 @@ export default function Home() {
     }));
   };
 
-  // Diffing large texts is slow, so let typing render before the result.
-  const deferredLeftText = useDeferredValue(leftText);
-  const deferredRightText = useDeferredValue(rightText);
-  const rows = useMemo(
-    () => buildRows(deferredLeftText, deferredRightText, ignoreWhitespace),
-    [deferredLeftText, deferredRightText, ignoreWhitespace],
+  const { result, pending } = useDiff(leftText, rightText, whitespace);
+  const rows = useMemo(() => result?.rows ?? [], [result]);
+  const foldUnchanged = foldPreference ?? rows.length > AUTO_FOLD_ROW_THRESHOLD;
+  const displayItems = useMemo(
+    () => buildDisplayItems(rows, foldUnchanged, expandedFolds),
+    [rows, foldUnchanged, expandedFolds],
   );
-  const detailedRows = useMemo(
-    () =>
-      rows.map((row) => ({
-        row,
-        segments:
-          row.kind === "changed" && row.left && row.right
-            ? inlineDiff(row.left.text, row.right.text)
-            : null,
-      })),
-    [rows],
+  const visibleItems = useMemo(
+    () => displayItems.slice(0, renderLimit),
+    [displayItems, renderLimit],
   );
-  const leftCount = useMemo(() => countText(deferredLeftText), [deferredLeftText]);
-  const rightCount = useMemo(
-    () => countText(deferredRightText),
-    [deferredRightText],
-  );
-  const removedLines = rows.filter((row) => row.kind === "changed" && row.left).length;
-  const addedLines = rows.filter((row) => row.kind === "changed" && row.right).length;
-  const changedRows = rows.filter((row) => row.kind === "changed").length;
+  const changedRows = result?.changedRows ?? 0;
+
+  const expandFold = useCallback((key: string) => {
+    setExpandedFolds((current) => new Set(current).add(key));
+  }, []);
+
+  const showMoreRows = useCallback(() => {
+    setRenderLimit((current) => current + RENDER_BATCH_SIZE);
+  }, []);
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -459,6 +684,13 @@ export default function Home() {
     window.dispatchEvent(new Event(LANGUAGE_CHANGE_EVENT));
   };
 
+  const toggleTheme = () => {
+    const nextTheme: Theme = theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = nextTheme;
+    document.cookie = `${THEME_COOKIE_KEY}=${nextTheme}; Path=/; Max-Age=31536000; SameSite=Lax`;
+    window.dispatchEvent(new Event(THEME_CHANGE_EVENT));
+  };
+
   const swapTexts = () => {
     setEditedTexts({ left: rightText, right: leftText });
   };
@@ -489,6 +721,51 @@ export default function Home() {
     const progress = source.scrollTop / (source.scrollHeight - source.clientHeight);
     target.scrollTop = progress * (target.scrollHeight - target.clientHeight);
   };
+
+  let diffContent;
+  if (!result) {
+    diffContent = (
+      <div className="empty-state">
+        <span className="empty-icon" aria-hidden="true">
+          <LoaderCircle size={24} className="animate-spin" />
+        </span>
+        <strong>{t.computing}</strong>
+      </div>
+    );
+  } else if (rows.length === 0) {
+    diffContent = (
+      <div className="empty-state">
+        <span className="empty-icon" aria-hidden="true">
+          <FileDiff size={24} />
+        </span>
+        <strong>{t.waiting}</strong>
+        <p>{t.waitingDescription}</p>
+      </div>
+    );
+  } else if (changedRows === 0) {
+    diffContent = (
+      <div className="empty-state success-state">
+        <span className="empty-icon" aria-hidden="true">
+          <Check size={24} />
+        </span>
+        <strong>{t.identical}</strong>
+        <p>{t.identicalDescription}</p>
+      </div>
+    );
+  } else {
+    diffContent = (
+      <DiffTable
+        rows={rows}
+        items={visibleItems}
+        hiddenItemCount={displayItems.length - visibleItems.length}
+        wrapLines={wrapLines}
+        unified={narrowScreen}
+        t={t}
+        onExpandFold={expandFold}
+        onShowMore={showMoreRows}
+      />
+    );
+  }
 
   return (
     <main className="app-shell">
@@ -526,6 +803,15 @@ export default function Home() {
               中文
             </button>
           </div>
+          <button
+            type="button"
+            className="icon-button theme-toggle"
+            onClick={toggleTheme}
+            aria-label={theme === "dark" ? t.switchToLight : t.switchToDark}
+            title={theme === "dark" ? t.switchToLight : t.switchToDark}
+          >
+            {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
           <div className="privacy-note">
             <LockKeyhole size={14} aria-hidden="true" />
             {t.privacy}
@@ -546,21 +832,25 @@ export default function Home() {
             </Button>
           </div>
           <div className="toolbar-options">
-            <label className="switch-option">
+            <label
+              className="switch-option"
+              title={t.ignoreWhitespaceAmountTitle}
+            >
               <Switch
-                checked={ignoreWhitespace}
-                onCheckedChange={setIgnoreWhitespace}
-                aria-label={t.ignoreWhitespace}
+                checked={ignoreWhitespaceAmount || ignoreAllWhitespace}
+                disabled={ignoreAllWhitespace}
+                onCheckedChange={setIgnoreWhitespaceAmount}
+                aria-label={t.ignoreWhitespaceAmount}
               />
-              {t.ignoreWhitespace}
+              {t.ignoreWhitespaceAmount}
             </label>
-            <label className="switch-option">
+            <label className="switch-option" title={t.ignoreAllWhitespaceTitle}>
               <Switch
-                checked={wrapLines}
-                onCheckedChange={setWrapLines}
-                aria-label={t.wrapLines}
+                checked={ignoreAllWhitespace}
+                onCheckedChange={setIgnoreAllWhitespace}
+                aria-label={t.ignoreAllWhitespace}
               />
-              {t.wrapLines}
+              {t.ignoreAllWhitespace}
             </label>
           </div>
         </div>
@@ -574,7 +864,7 @@ export default function Home() {
                 <span className="side-key">A</span>
               </div>
               <div className="panel-meta">
-                {t.textCount(leftCount.lines, leftCount.characters)}
+                <CountLabel count={result?.leftCount} t={t} />
                 <Button
                   variant="ghost"
                   size="sm"
@@ -619,7 +909,7 @@ export default function Home() {
                 <span className="side-key">B</span>
               </div>
               <div className="panel-meta">
-                {t.textCount(rightCount.lines, rightCount.characters)}
+                <CountLabel count={result?.rightCount} t={t} />
                 <Button
                   variant="ghost"
                   size="sm"
@@ -657,48 +947,54 @@ export default function Home() {
           </article>
         </div>
 
-        <section className="diff-card" aria-label={t.diffResult}>
+        <section className="diff-card" aria-label={t.diffResult} aria-busy={pending}>
           <div className="diff-heading">
             <div>
               <div className="diff-title-row">
                 <h2>{t.diffResult}</h2>
+                {pending && result ? (
+                  <span className="diff-pending" role="status">
+                    <LoaderCircle size={13} className="animate-spin" aria-hidden="true" />
+                    {t.computing}
+                  </span>
+                ) : null}
               </div>
               <p>{t.diffDescription}</p>
             </div>
-            <div className="diff-stats" aria-label={t.diffStatsLabel}>
-              <span className="stat stat-removed">− {removedLines}</span>
-              <span className="stat stat-added">+ {addedLines}</span>
-              <span className="stat stat-total">{t.changedLines(changedRows)}</span>
+            <div className="diff-heading-side">
+              <div className="diff-view-options">
+                <label className="switch-option">
+                  <Switch
+                    checked={wrapLines}
+                    onCheckedChange={setWrapLines}
+                    aria-label={t.wrapLines}
+                  />
+                  {t.wrapLines}
+                </label>
+                <label className="switch-option" title={t.foldUnchangedTitle}>
+                  <Switch
+                    checked={foldUnchanged}
+                    onCheckedChange={(checked) => {
+                      setFoldPreference(checked);
+                      setExpandedFolds(new Set());
+                    }}
+                    aria-label={t.foldUnchanged}
+                  />
+                  {t.foldUnchanged}
+                </label>
+              </div>
+              <div className="diff-stats" aria-label={t.diffStatsLabel}>
+                <span className="stat stat-removed">− {result?.removedLines ?? 0}</span>
+                <span className="stat stat-added">+ {result?.addedLines ?? 0}</span>
+                <span className="stat stat-total">{t.changedLines(changedRows)}</span>
+              </div>
             </div>
           </div>
 
-          {rows.length === 0 ? (
-            <div className="empty-state">
-              <span className="empty-icon" aria-hidden="true">
-                <FileDiff size={24} />
-              </span>
-              <strong>{t.waiting}</strong>
-              <p>{t.waitingDescription}</p>
-            </div>
-          ) : changedRows === 0 ? (
-            <div className="empty-state success-state">
-              <span className="empty-icon" aria-hidden="true">
-                <Check size={24} />
-              </span>
-              <strong>{t.identical}</strong>
-              <p>{t.identicalDescription}</p>
-            </div>
-          ) : (
-            <DiffTable
-              detailedRows={detailedRows}
-              wrapLines={wrapLines}
-              originalLabel={t.original}
-              revisedLabel={t.revised}
-            />
-          )}
+          {diffContent}
         </section>
       </section>
-      <Toaster position="bottom-center" richColors />
+      <Toaster position="bottom-center" richColors theme={theme} />
     </main>
   );
 }
