@@ -14,6 +14,8 @@ export type DiffRow = {
   right: DiffLine | null;
 };
 
+export type WhitespaceMode = "none" | "amount" | "all";
+
 export type LineOperation =
   | {
       kind: "same";
@@ -148,9 +150,13 @@ export function splitLines(text: string) {
   return text.replace(/\r\n?/g, "\n").split("\n");
 }
 
-export function normalizeLine(line: string, ignoreWhitespace: boolean) {
+export function normalizeLine(line: string, whitespace: WhitespaceMode) {
   const normalized = line.normalize("NFC");
-  return ignoreWhitespace ? normalized.replace(/\s+/g, " ").trim() : normalized;
+  // "amount" matches `git diff -b`: runs of whitespace compare equal and
+  // trailing whitespace is ignored. "all" matches `git diff -w`.
+  if (whitespace === "amount") return normalized.replace(/\s+/g, " ").trimEnd();
+  if (whitespace === "all") return normalized.replace(/\s+/g, "");
+  return normalized;
 }
 
 // Spreading a large array into push() overflows the call stack.
@@ -501,12 +507,12 @@ function diffLineRange(
 export function buildLineOperations(
   leftText: string,
   rightText: string,
-  ignoreWhitespace: boolean,
+  whitespace: WhitespaceMode,
 ) {
   const left = splitLines(leftText);
   const right = splitLines(rightText);
-  const leftNormalized = left.map((line) => normalizeLine(line, ignoreWhitespace));
-  const rightNormalized = right.map((line) => normalizeLine(line, ignoreWhitespace));
+  const leftNormalized = left.map((line) => normalizeLine(line, whitespace));
+  const rightNormalized = right.map((line) => normalizeLine(line, whitespace));
   const operations: LineOperation[] = [];
 
   diffLineRange(
@@ -959,9 +965,9 @@ function alignChangedRows(
 export function buildRows(
   leftText: string,
   rightText: string,
-  ignoreWhitespace: boolean,
+  whitespace: WhitespaceMode,
 ) {
-  const operations = buildLineOperations(leftText, rightText, ignoreWhitespace);
+  const operations = buildLineOperations(leftText, rightText, whitespace);
   const rows: DiffRow[] = [];
   let index = 0;
 
@@ -1028,102 +1034,54 @@ function appendSegment(segments: Segment[], segment: Segment) {
   else segments.push(segment);
 }
 
-function appendInlineEdits(
-  edits: SequenceEdit[],
+function diffSequence(
   left: string[],
   right: string[],
-  leftSegments: Segment[],
-  rightSegments: Segment[],
+  maximumDistance = MAX_INLINE_EDIT_DISTANCE,
 ) {
-  for (const edit of edits) {
-    if (edit.kind === "same") {
-      appendSegment(leftSegments, { kind: "same", text: left[edit.leftIndex] });
-      appendSegment(rightSegments, { kind: "same", text: right[edit.rightIndex] });
-    } else if (edit.kind === "removed") {
-      appendSegment(leftSegments, { kind: "removed", text: left[edit.leftIndex] });
-    } else {
-      appendSegment(rightSegments, { kind: "added", text: right[edit.rightIndex] });
-    }
-  }
-}
-
-function appendPositionalInlineDiff(
-  left: string[],
-  right: string[],
-  leftKeys: string[],
-  rightKeys: string[],
-  leftSegments: Segment[],
-  rightSegments: Segment[],
-) {
-  for (let index = 0; index < left.length; index += 1) {
-    if (leftKeys[index] === rightKeys[index]) {
-      appendSegment(leftSegments, { kind: "same", text: left[index] });
-      appendSegment(rightSegments, { kind: "same", text: right[index] });
-    } else {
-      appendSegment(leftSegments, { kind: "removed", text: left[index] });
-      appendSegment(rightSegments, { kind: "added", text: right[index] });
-    }
-  }
-}
-
-export function inlineDiff(leftText: string, rightText: string) {
-  const leftGraphemes = splitGraphemes(leftText);
-  const rightGraphemes = splitGraphemes(rightText);
-  const leftKeys = leftGraphemes.map((part) => part.normalize("NFC"));
-  const rightKeys = rightGraphemes.map((part) => part.normalize("NFC"));
+  const edits: SequenceEdit[] = [];
   let prefixLength = 0;
 
   while (
-    prefixLength < leftGraphemes.length &&
-    prefixLength < rightGraphemes.length &&
-    leftKeys[prefixLength] === rightKeys[prefixLength]
+    prefixLength < left.length &&
+    prefixLength < right.length &&
+    left[prefixLength] === right[prefixLength]
   ) {
+    edits.push({ kind: "same", leftIndex: prefixLength, rightIndex: prefixLength });
     prefixLength += 1;
   }
 
   let suffixLength = 0;
   while (
-    suffixLength < leftGraphemes.length - prefixLength &&
-    suffixLength < rightGraphemes.length - prefixLength &&
-    leftKeys[leftKeys.length - 1 - suffixLength] ===
-      rightKeys[rightKeys.length - 1 - suffixLength]
+    suffixLength < left.length - prefixLength &&
+    suffixLength < right.length - prefixLength &&
+    left[left.length - 1 - suffixLength] === right[right.length - 1 - suffixLength]
   ) {
     suffixLength += 1;
   }
 
-  const leftEnd = suffixLength ? leftGraphemes.length - suffixLength : leftGraphemes.length;
-  const rightEnd = suffixLength
-    ? rightGraphemes.length - suffixLength
-    : rightGraphemes.length;
-  const left = leftGraphemes.slice(prefixLength, leftEnd);
-  const right = rightGraphemes.slice(prefixLength, rightEnd);
-  const leftMiddleKeys = leftKeys.slice(prefixLength, leftEnd);
-  const rightMiddleKeys = rightKeys.slice(prefixLength, rightEnd);
-  const leftSegments: Segment[] = [];
-  const rightSegments: Segment[] = [];
+  const leftEnd = left.length - suffixLength;
+  const rightEnd = right.length - suffixLength;
+  const leftLength = leftEnd - prefixLength;
+  const rightLength = rightEnd - prefixLength;
 
-  appendSegment(leftSegments, {
-    kind: "same",
-    text: leftGraphemes.slice(0, prefixLength).join(""),
-  });
-  appendSegment(rightSegments, {
-    kind: "same",
-    text: rightGraphemes.slice(0, prefixLength).join(""),
-  });
-
-  if (!left.length || !right.length) {
-    appendSegment(leftSegments, { kind: "removed", text: left.join("") });
-    appendSegment(rightSegments, { kind: "added", text: right.join("") });
-  } else if (left.length * right.length <= EXACT_INLINE_DIFF_CELL_LIMIT) {
+  if (!leftLength || !rightLength) {
+    for (let index = prefixLength; index < leftEnd; index += 1) {
+      edits.push({ kind: "removed", leftIndex: index });
+    }
+    for (let index = prefixLength; index < rightEnd; index += 1) {
+      edits.push({ kind: "added", rightIndex: index });
+    }
+  } else if (leftLength * rightLength <= EXACT_INLINE_DIFF_CELL_LIMIT) {
     const table = Array.from(
-      { length: left.length + 1 },
-      () => new Uint32Array(right.length + 1),
+      { length: leftLength + 1 },
+      () => new Uint32Array(rightLength + 1),
     );
 
-    for (let i = left.length - 1; i >= 0; i -= 1) {
-      for (let j = right.length - 1; j >= 0; j -= 1) {
+    for (let i = leftLength - 1; i >= 0; i -= 1) {
+      for (let j = rightLength - 1; j >= 0; j -= 1) {
         table[i][j] =
-          leftMiddleKeys[i] === rightMiddleKeys[j]
+          left[prefixLength + i] === right[prefixLength + j]
             ? table[i + 1][j + 1] + 1
             : Math.max(table[i + 1][j], table[i][j + 1]);
       }
@@ -1132,63 +1090,269 @@ export function inlineDiff(leftText: string, rightText: string) {
     let i = 0;
     let j = 0;
 
-    while (i < left.length && j < right.length) {
-      if (leftMiddleKeys[i] === rightMiddleKeys[j]) {
-        appendSegment(leftSegments, { kind: "same", text: left[i] });
-        appendSegment(rightSegments, { kind: "same", text: right[j] });
+    while (i < leftLength && j < rightLength) {
+      if (left[prefixLength + i] === right[prefixLength + j]) {
+        edits.push({
+          kind: "same",
+          leftIndex: prefixLength + i,
+          rightIndex: prefixLength + j,
+        });
         i += 1;
         j += 1;
       } else if (table[i + 1][j] >= table[i][j + 1]) {
-        appendSegment(leftSegments, { kind: "removed", text: left[i] });
+        edits.push({ kind: "removed", leftIndex: prefixLength + i });
         i += 1;
       } else {
-        appendSegment(rightSegments, { kind: "added", text: right[j] });
+        edits.push({ kind: "added", rightIndex: prefixLength + j });
         j += 1;
       }
     }
 
-    while (i < left.length) {
-      appendSegment(leftSegments, { kind: "removed", text: left[i] });
-      i += 1;
+    for (; i < leftLength; i += 1) {
+      edits.push({ kind: "removed", leftIndex: prefixLength + i });
     }
-    while (j < right.length) {
-      appendSegment(rightSegments, { kind: "added", text: right[j] });
-      j += 1;
+    for (; j < rightLength; j += 1) {
+      edits.push({ kind: "added", rightIndex: prefixLength + j });
     }
   } else {
-    const edits = hasCommonValue(leftMiddleKeys, rightMiddleKeys)
-      ? boundedMyersDiff(
-          leftMiddleKeys,
-          rightMiddleKeys,
-          MAX_INLINE_EDIT_DISTANCE,
-        )
+    const leftMiddle = left.slice(prefixLength, leftEnd);
+    const rightMiddle = right.slice(prefixLength, rightEnd);
+    const middleEdits = hasCommonValue(leftMiddle, rightMiddle)
+      ? boundedMyersDiff(leftMiddle, rightMiddle, maximumDistance)
       : null;
 
-    if (edits) {
-      appendInlineEdits(edits, left, right, leftSegments, rightSegments);
-    } else if (left.length === right.length) {
-      appendPositionalInlineDiff(
-        left,
-        right,
-        leftMiddleKeys,
-        rightMiddleKeys,
-        leftSegments,
-        rightSegments,
-      );
+    if (middleEdits) {
+      for (const edit of middleEdits) {
+        if (edit.kind === "same") {
+          edits.push({
+            kind: "same",
+            leftIndex: prefixLength + edit.leftIndex,
+            rightIndex: prefixLength + edit.rightIndex,
+          });
+        } else if (edit.kind === "removed") {
+          edits.push({ kind: "removed", leftIndex: prefixLength + edit.leftIndex });
+        } else {
+          edits.push({ kind: "added", rightIndex: prefixLength + edit.rightIndex });
+        }
+      }
+    } else if (leftLength === rightLength) {
+      for (let index = prefixLength; index < leftEnd; index += 1) {
+        if (left[index] === right[index]) {
+          edits.push({ kind: "same", leftIndex: index, rightIndex: index });
+        } else {
+          edits.push({ kind: "removed", leftIndex: index });
+          edits.push({ kind: "added", rightIndex: index });
+        }
+      }
     } else {
-      appendSegment(leftSegments, { kind: "removed", text: left.join("") });
-      appendSegment(rightSegments, { kind: "added", text: right.join("") });
+      for (let index = prefixLength; index < leftEnd; index += 1) {
+        edits.push({ kind: "removed", leftIndex: index });
+      }
+      for (let index = prefixLength; index < rightEnd; index += 1) {
+        edits.push({ kind: "added", rightIndex: index });
+      }
     }
   }
 
-  appendSegment(leftSegments, {
-    kind: "same",
-    text: suffixLength ? leftGraphemes.slice(leftEnd).join("") : "",
-  });
-  appendSegment(rightSegments, {
-    kind: "same",
-    text: suffixLength ? rightGraphemes.slice(rightEnd).join("") : "",
-  });
+  for (let offset = suffixLength; offset > 0; offset -= 1) {
+    edits.push({
+      kind: "same",
+      leftIndex: left.length - offset,
+      rightIndex: right.length - offset,
+    });
+  }
 
-  return { left: leftSegments, right: rightSegments };
+  return edits;
+}
+
+export type InlineSegments = { left: Segment[]; right: Segment[] };
+
+/** Character-level diff of two strings, using graphemes as the unit. */
+export function graphemeDiff(leftText: string, rightText: string): InlineSegments {
+  const leftGraphemes = splitGraphemes(leftText);
+  const rightGraphemes = splitGraphemes(rightText);
+  const edits = diffSequence(
+    leftGraphemes.map((part) => part.normalize("NFC")),
+    rightGraphemes.map((part) => part.normalize("NFC")),
+  );
+  const left: Segment[] = [];
+  const right: Segment[] = [];
+
+  for (const edit of edits) {
+    if (edit.kind === "same") {
+      appendSegment(left, { kind: "same", text: leftGraphemes[edit.leftIndex] });
+      appendSegment(right, { kind: "same", text: rightGraphemes[edit.rightIndex] });
+    } else if (edit.kind === "removed") {
+      appendSegment(left, { kind: "removed", text: leftGraphemes[edit.leftIndex] });
+    } else {
+      appendSegment(right, { kind: "added", text: rightGraphemes[edit.rightIndex] });
+    }
+  }
+
+  return { left, right };
+}
+
+export type Token = { kind: "space" | "word" | "other"; text: string };
+
+const WHITESPACE_PATTERN = /^\s+$/u;
+const WORD_PATTERN = /^[\p{L}\p{M}\p{N}_]+$/u;
+// Scripts written without spaces between words compare one character at a time.
+const UNSPACED_SCRIPT_PATTERN =
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Bopomofo}]/u;
+
+/**
+ * Splits a line into words, whitespace runs, and single characters. Chinese
+ * and Japanese characters and punctuation each become their own token.
+ */
+export function splitTokens(text: string) {
+  const tokens: Token[] = [];
+
+  for (const grapheme of splitGraphemes(text)) {
+    const kind = WHITESPACE_PATTERN.test(grapheme)
+      ? "space"
+      : !UNSPACED_SCRIPT_PATTERN.test(grapheme) && WORD_PATTERN.test(grapheme)
+        ? "word"
+        : "other";
+    const previous = tokens.at(-1);
+    if (kind !== "other" && previous?.kind === kind) previous.text += grapheme;
+    else tokens.push({ kind, text: grapheme });
+  }
+
+  return tokens;
+}
+
+// A replaced word is refined to characters only when most of it survives,
+// such as "difference" → "differences", so unrelated words stay whole.
+function sharesMostOfWord(leftText: string, rightText: string) {
+  const left = splitGraphemes(leftText.normalize("NFC"));
+  const right = splitGraphemes(rightText.normalize("NFC"));
+  let prefixLength = 0;
+  while (
+    prefixLength < left.length &&
+    prefixLength < right.length &&
+    left[prefixLength] === right[prefixLength]
+  ) {
+    prefixLength += 1;
+  }
+
+  let suffixLength = 0;
+  while (
+    suffixLength < left.length - prefixLength &&
+    suffixLength < right.length - prefixLength &&
+    left[left.length - 1 - suffixLength] === right[right.length - 1 - suffixLength]
+  ) {
+    suffixLength += 1;
+  }
+
+  return (prefixLength + suffixLength) * 2 >= Math.max(left.length, right.length);
+}
+
+/**
+ * Highlights changes within a pair of lines word by word. Chinese and
+ * Japanese text is compared character by character.
+ */
+export function inlineDiff(
+  leftText: string,
+  rightText: string,
+  whitespace: WhitespaceMode = "none",
+): InlineSegments {
+  const leftTokens = splitTokens(leftText);
+  const rightTokens = splitTokens(rightText);
+  const tokenKey = (token: Token) =>
+    token.kind === "space" && whitespace !== "none" ? " " : token.text.normalize("NFC");
+  const edits = diffSequence(leftTokens.map(tokenKey), rightTokens.map(tokenKey));
+  const left: Segment[] = [];
+  const right: Segment[] = [];
+  let removed: Token[] = [];
+  let added: Token[] = [];
+
+  const flushChange = () => {
+    if (
+      removed.length === 1 &&
+      added.length === 1 &&
+      removed[0].kind === "word" &&
+      added[0].kind === "word" &&
+      sharesMostOfWord(removed[0].text, added[0].text)
+    ) {
+      const refined = graphemeDiff(removed[0].text, added[0].text);
+      for (const segment of refined.left) appendSegment(left, segment);
+      for (const segment of refined.right) appendSegment(right, segment);
+    } else {
+      appendSegment(left, {
+        kind: "removed",
+        text: removed.map((token) => token.text).join(""),
+      });
+      appendSegment(right, {
+        kind: "added",
+        text: added.map((token) => token.text).join(""),
+      });
+    }
+    removed = [];
+    added = [];
+  };
+
+  for (const edit of edits) {
+    if (edit.kind === "same") {
+      flushChange();
+      appendSegment(left, { kind: "same", text: leftTokens[edit.leftIndex].text });
+      appendSegment(right, { kind: "same", text: rightTokens[edit.rightIndex].text });
+    } else if (edit.kind === "removed") {
+      removed.push(leftTokens[edit.leftIndex]);
+    } else {
+      added.push(rightTokens[edit.rightIndex]);
+    }
+  }
+  flushChange();
+
+  return { left, right };
+}
+
+export type TextCount = { lines: number; characters: number };
+
+export type DetailedRow = DiffRow & { segments: InlineSegments | null };
+
+export type DiffResult = {
+  rows: DetailedRow[];
+  removedLines: number;
+  addedLines: number;
+  changedRows: number;
+  leftCount: TextCount;
+  rightCount: TextCount;
+};
+
+/** Everything the result view needs, in one call that can run in a worker. */
+export function computeDiff(
+  leftText: string,
+  rightText: string,
+  whitespace: WhitespaceMode,
+): DiffResult {
+  let removedLines = 0;
+  let addedLines = 0;
+  let changedRows = 0;
+  const rows = buildRows(leftText, rightText, whitespace).map(
+    (row): DetailedRow => {
+      if (row.kind === "changed") {
+        changedRows += 1;
+        if (row.left) removedLines += 1;
+        if (row.right) addedLines += 1;
+      }
+
+      return {
+        ...row,
+        segments:
+          row.kind === "changed" && row.left && row.right
+            ? inlineDiff(row.left.text, row.right.text, whitespace)
+            : null,
+      };
+    },
+  );
+
+  return {
+    rows,
+    removedLines,
+    addedLines,
+    changedRows,
+    leftCount: countText(leftText),
+    rightCount: countText(rightText),
+  };
 }
