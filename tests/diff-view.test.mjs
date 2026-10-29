@@ -1,8 +1,26 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { after } from "node:test";
+import { fileURLToPath } from "node:url";
 
-const { buildRows } = await import("../lib/diff.ts");
-const { buildDisplayItems } = await import("../lib/diff-view.ts");
+import { createServer } from "vite";
+
+// Load the TypeScript sources through Vite: Node only strips types without a
+// flag from 22.18, and the project supports 22.13.
+const root = fileURLToPath(new URL("..", import.meta.url));
+const vite = await createServer({
+  appType: "custom",
+  configFile: false,
+  root,
+  resolve: { alias: { "@": root } },
+  server: { middlewareMode: true, hmr: { port: 24680 } },
+});
+
+after(async () => {
+  await vite.close();
+});
+
+const { buildRows } = await vite.ssrLoadModule("/lib/diff.ts");
+const { buildDisplayItems } = await vite.ssrLoadModule("/lib/diff-view.ts");
 
 const lines = (count, change) =>
   Array.from({ length: count }, (_, index) =>
