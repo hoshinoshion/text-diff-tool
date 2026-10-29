@@ -14,19 +14,15 @@ import {
   Check,
   ChevronsUpDown,
   Copy,
-  Eraser,
-  FileDiff,
-  Languages,
   LoaderCircle,
-  LockKeyhole,
   Moon,
+  RotateCcw,
   Sun,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
-import { Switch } from "@/components/ui/switch";
 import { useInitialLocale } from "@/app/locale-provider";
 import { useInitialTheme } from "@/app/theme-provider";
 import { useDiff } from "@/app/use-diff";
@@ -51,6 +47,7 @@ import { THEME_COOKIE_KEY, type Theme } from "@/lib/theme";
 
 const LANGUAGE_CHANGE_EVENT = "text-diff-tool-language-change";
 const THEME_CHANGE_EVENT = "text-diff-tool-theme-change";
+const WHITESPACE_MODES: readonly WhitespaceMode[] = ["none", "amount", "all"];
 const NARROW_SCREEN_QUERY = "(max-width: 760px)";
 const DARK_SCHEME_QUERY = "(prefers-color-scheme: dark)";
 // Rendering is the slow part for huge results, so rows appear in batches.
@@ -59,129 +56,142 @@ let sessionLocale: Locale | null = null;
 
 const PRESET_TEXTS: Record<Locale, { left: string; right: string }> = {
   en: {
-    left: `Text Diff Tool helps you quickly spot differences between two versions of text.
-It compares the content line by line and highlights removed or modified parts.
-Everything is processed locally in your browser and is never uploaded to a server.
+    left: `Lemon Pound Cake
 
-Paste the first version on the left, then paste the new version on the right.`,
-    right: `Text Diff Tool helps you quickly find every difference between two versions of text.
-It compares the content line by line and clearly highlights added, removed, or modified parts.
-Everything is processed only in your browser and is never uploaded to any server.
+Preheat the oven to 180°C.
+Beat 200 g butter with 180 g sugar until pale.
+Add 3 eggs, one at a time.
+Fold in 200 g flour and the zest of one lemon.
+Bake for 45 minutes.`,
+    right: `Lemon Pound Cake
 
-Paste the original text on the left, then paste the revised version on the right.
-The diff updates in real time.`,
+Preheat the oven to 175°C.
+Beat 200 g soft butter with 160 g sugar until pale and fluffy.
+Add 3 eggs, one at a time.
+Fold in 200 g flour, a pinch of salt and the zest of two lemons.
+Bake for 50 minutes, until a skewer comes out clean.
+Let it cool before slicing.`,
   },
   "zh-CN": {
-    left: `文本对比工具可以帮助你快速发现两份内容之间的区别。
-它会逐行分析文本，并用颜色标记被删除或修改的部分。
-所有内容都在浏览器本地处理，不会上传到服务器。
+    left: `柠檬磅蛋糕
 
-将第一份文本粘贴到左侧，然后在右侧粘贴新版本。`,
-    right: `文本对比工具可以帮助你快速找出两份内容之间的差异。
-它会逐行分析文本，并用颜色清晰标记被新增、删除或修改的部分。
-所有内容都只在浏览器本地处理，不会上传到任何服务器。
+烤箱预热至 180°C。
+将 200 克黄油和 180 克糖打发至颜色变浅。
+分三次加入 3 个鸡蛋。
+拌入 200 克面粉和一个柠檬的皮屑。
+烘烤 45 分钟。`,
+    right: `柠檬磅蛋糕
 
-将原始文本粘贴到左侧，然后在右侧粘贴修改后的版本。
-差异结果会实时更新。`,
+烤箱预热至 175°C。
+将 200 克软化黄油和 160 克糖打发至蓬松发白。
+分三次加入 3 个鸡蛋。
+拌入 200 克面粉、一小撮盐和两个柠檬的皮屑。
+烘烤 50 分钟，直到竹签插入后拔出无残留。
+放凉后再切片。`,
   },
 };
 
 const translations = {
   en: {
-    title: "Text Diff Tool",
+    title: "Diff — Compare Two Texts",
     description:
-      "Compare two texts side by side in your browser and highlight additions, deletions, and changes.",
-    tagline: "Paste two texts and see every change instantly",
-    privacy: "Processed only in this browser",
+      "Paste two versions of any text and see exactly what changed, line by line and word by word. Runs entirely in your browser.",
+    headline: "Compare text",
+    privacy: "Your text never leaves this browser.",
     languageLabel: "Language",
-    switchToDark: "Switch to dark theme",
-    switchToLight: "Switch to light theme",
-    workspaceLabel: "Text comparison workspace",
-    swap: "Swap sides",
-    clear: "Clear",
-    ignoreWhitespaceAmount: "Ignore whitespace changes",
-    ignoreWhitespaceAmountTitle:
-      "Treat runs of spaces and tabs as equal and ignore trailing whitespace",
-    ignoreAllWhitespace: "Ignore all whitespace",
-    ignoreAllWhitespaceTitle: "Ignore every space, tab, and other whitespace",
+    switchToDark: "Use dark theme",
+    switchToLight: "Use light theme",
+    workspaceLabel: "Compare texts",
+    before: "Before",
+    after: "After",
+    beforePlaceholder: "Paste the earlier version…",
+    afterPlaceholder: "Paste the newer version…",
+    clearBefore: "Clear the Before side",
+    clearAfter: "Clear the After side",
+    copyBefore: "Copy the Before text",
+    copyAfter: "Copy the After text",
+    swap: "Swap Before and After",
+    startOver: "Start over",
+    whitespace: "Whitespace",
+    whitespaceExact: "Exact",
+    whitespaceExactTitle: "Every space and tab counts",
+    whitespaceAmount: "Ignore changes",
+    whitespaceAmountTitle:
+      "Treat runs of spaces and tabs as one and ignore trailing spaces, like git diff -b",
+    whitespaceAll: "Ignore all",
+    whitespaceAllTitle: "Leave spaces and tabs out of the comparison, like git diff -w",
+    changes: "Changes",
+    changeSummaryLabel: "Change summary",
+    changedLineKey: "Changed line",
+    changedWordsKey: "Changed words",
     wrapLines: "Wrap lines",
-    foldUnchanged: "Collapse unchanged",
-    foldUnchangedTitle: "Hide unchanged lines except a few around each change",
-    original: "Original text",
-    revised: "Revised text",
-    clearOriginal: "Clear original text",
-    clearOriginalTitle: "Clear only the original text on the left",
-    clearRevised: "Clear revised text",
-    clearRevisedTitle: "Clear only the revised text on the right",
-    copyOriginal: "Copy original text",
-    copyRevised: "Copy revised text",
-    originalPlaceholder: "Paste the original text here…",
-    revisedPlaceholder: "Paste the revised text here…",
-    diffResult: "Diff result",
-    diffDescription:
-      "Light colors mark changed lines; darker colors mark the changed words (characters in Chinese)",
-    diffStatsLabel: "Diff statistics",
+    foldUnchanged: "Hide unchanged",
+    foldUnchangedTitle: "Keep only a few lines around each change",
     computing: "Comparing…",
-    waiting: "Waiting for text",
-    waitingDescription: "Paste the content to compare into the two panels above.",
-    identical: "The two texts are identical",
-    identicalDescription: "No differences were found with the current settings.",
-    copyFailure: "Copy failed. Select the text and copy it manually.",
-    clipboardPermission: "The browser may not have granted clipboard permission.",
+    waiting: "Nothing to compare yet",
+    waitingDescription: "Paste text into both sides to see what changed.",
+    identical: "No differences",
+    identicalDescription: "Both sides match with the current whitespace setting.",
+    copyFailure: "Couldn’t copy",
+    clipboardPermission:
+      "Your browser blocked clipboard access. Select the text and copy it by hand.",
     textCount: (lines: number, characters: number) =>
-      `${lines} ${lines === 1 ? "line" : "lines"} · ${characters} ${
-        characters === 1 ? "character" : "characters"
+      `${lines.toLocaleString("en")} ${lines === 1 ? "line" : "lines"} · ${characters.toLocaleString("en")} ${
+        characters === 1 ? "char" : "chars"
       }`,
     changedLines: (count: number) =>
-      `${count} changed ${count === 1 ? "line" : "lines"}`,
+      `${count.toLocaleString("en")} ${count === 1 ? "line differs" : "lines differ"}`,
     showFolded: (count: number) =>
-      `Show ${count} unchanged ${count === 1 ? "line" : "lines"}`,
+      `Show ${count.toLocaleString("en")} unchanged ${count === 1 ? "line" : "lines"}`,
     showMore: (count: number) =>
-      `Show more (${count} ${count === 1 ? "row" : "rows"} remaining)`,
+      `Load more · ${count.toLocaleString("en")} ${count === 1 ? "row" : "rows"} left`,
   },
   "zh-CN": {
-    title: "文本对比工具",
-    description: "在浏览器中并排比较两份文本，高亮显示新增、删除和修改的内容。",
-    tagline: "粘贴两份文本，立即看见每一处变化",
-    privacy: "仅在当前浏览器中处理",
+    title: "Diff · 文本对比",
+    description:
+      "粘贴两个版本的文本，逐行、逐词标出改动。全部在浏览器本地完成，内容不会上传。",
+    headline: "文本对比",
+    privacy: "文本只在你的浏览器里处理，不会上传。",
     languageLabel: "语言",
-    switchToDark: "切换到深色模式",
-    switchToLight: "切换到浅色模式",
-    workspaceLabel: "文本对比工作区",
-    swap: "交换两侧",
-    clear: "清空",
-    ignoreWhitespaceAmount: "忽略空白数量变化",
-    ignoreWhitespaceAmountTitle: "连续的空格和制表符视为相同，并忽略行尾空白",
-    ignoreAllWhitespace: "忽略所有空白",
-    ignoreAllWhitespaceTitle: "忽略所有空格、制表符等空白字符",
+    switchToDark: "切换到深色",
+    switchToLight: "切换到浅色",
+    workspaceLabel: "文本对比",
+    before: "修改前",
+    after: "修改后",
+    beforePlaceholder: "粘贴较早的版本…",
+    afterPlaceholder: "粘贴较新的版本…",
+    clearBefore: "清空修改前",
+    clearAfter: "清空修改后",
+    copyBefore: "复制修改前的文本",
+    copyAfter: "复制修改后的文本",
+    swap: "对调前后",
+    startOver: "全部清空",
+    whitespace: "空白字符",
+    whitespaceExact: "严格比较",
+    whitespaceExactTitle: "每个空格和制表符都参与比较",
+    whitespaceAmount: "忽略数量",
+    whitespaceAmountTitle: "连续空白视为一个，并忽略行尾空白（同 git diff -b）",
+    whitespaceAll: "全部忽略",
+    whitespaceAllTitle: "完全不比较空格和制表符（同 git diff -w）",
+    changes: "改动",
+    changeSummaryLabel: "改动统计",
+    changedLineKey: "改动的行",
+    changedWordsKey: "改动的词",
     wrapLines: "自动换行",
-    foldUnchanged: "折叠未变化的行",
-    foldUnchangedTitle: "隐藏未变化的行，只保留每处变化前后的几行",
-    original: "原始文本",
-    revised: "修改后文本",
-    clearOriginal: "清空原始文本",
-    clearOriginalTitle: "只清空左侧原始文本",
-    clearRevised: "清空修改后文本",
-    clearRevisedTitle: "只清空右侧修改后文本",
-    copyOriginal: "复制原始文本",
-    copyRevised: "复制修改后文本",
-    originalPlaceholder: "在这里粘贴原始文本…",
-    revisedPlaceholder: "在这里粘贴修改后的文本…",
-    diffResult: "差异结果",
-    diffDescription: "浅色标记整行变化，深色标记具体变化的词语（中文按字符）",
-    diffStatsLabel: "差异统计",
-    computing: "正在对比…",
-    waiting: "等待文本",
-    waitingDescription: "将需要比较的内容粘贴到上方左右两侧。",
-    identical: "两份文本完全一致",
-    identicalDescription: "当前设置下没有发现任何差异。",
-    copyFailure: "复制失败，请手动选择文本复制。",
-    clipboardPermission: "浏览器可能未授予剪贴板权限。",
+    foldUnchanged: "隐藏未改动",
+    foldUnchangedTitle: "只保留每处改动附近的几行",
+    computing: "对比中…",
+    waiting: "还没有内容",
+    waitingDescription: "在上方两侧粘贴文本，改动会显示在这里。",
+    identical: "没有差异",
+    identicalDescription: "在当前空白字符设置下，两侧内容完全相同。",
+    copyFailure: "复制失败",
+    clipboardPermission: "浏览器未允许访问剪贴板，请手动选中文本复制。",
     textCount: (lines: number, characters: number) =>
-      `${lines} 行 · ${characters} 字符`,
-    changedLines: (count: number) => `${count} 行差异`,
-    showFolded: (count: number) => `显示 ${count} 行未变化的内容`,
-    showMore: (count: number) => `显示更多（还有 ${count} 行）`,
+      `${lines} 行 · ${characters} 字`,
+    changedLines: (count: number) => `${count} 行不同`,
+    showFolded: (count: number) => `展开 ${count} 行未改动内容`,
+    showMore: (count: number) => `继续加载（剩余 ${count} 行）`,
   },
 } satisfies Record<Locale, Record<string, unknown>>;
 
@@ -300,7 +310,7 @@ function FoldButton({
 }) {
   return (
     <button type="button" className="diff-fold" onClick={() => onExpand(item.key)}>
-      <ChevronsUpDown size={13} aria-hidden="true" />
+      <ChevronsUpDown size={14} aria-hidden="true" />
       {label}
     </button>
   );
@@ -451,8 +461,8 @@ const DiffTable = memo(function DiffTable({
         <div className="diff-scroll">
           <div className="diff-rows">
             <div className="diff-column-labels" aria-hidden="true">
-              <span>{t.original}</span>
-              <span>{t.revised}</span>
+              <span>{t.before}</span>
+              <span>{t.after}</span>
             </div>
             {items.map((item) =>
               item.type === "row" ? (
@@ -476,7 +486,7 @@ const DiffTable = memo(function DiffTable({
           {(["left", "right"] as const).map((side) => (
             <div className="diff-pane-group" key={side}>
               <div className="diff-pane-label">
-                {side === "left" ? t.original : t.revised}
+                {side === "left" ? t.before : t.after}
               </div>
               <div
                 className="diff-pane"
@@ -545,8 +555,7 @@ export default function Home() {
     left: string;
     right: string;
   } | null>(null);
-  const [ignoreWhitespaceAmount, setIgnoreWhitespaceAmount] = useState(false);
-  const [ignoreAllWhitespace, setIgnoreAllWhitespace] = useState(false);
+  const [whitespace, setWhitespace] = useState<WhitespaceMode>("none");
   const [wrapLines, setWrapLines] = useState(true);
   const [foldPreference, setFoldPreference] = useState<boolean | null>(null);
   const [expandedFolds, setExpandedFolds] = useState<ReadonlySet<string>>(
@@ -562,11 +571,6 @@ export default function Home() {
   const rightEditor = useRef<HTMLTextAreaElement>(null);
   const t = translations[locale];
   const { left: leftText, right: rightText } = editedTexts ?? PRESET_TEXTS[locale];
-  const whitespace: WhitespaceMode = ignoreAllWhitespace
-    ? "all"
-    : ignoreWhitespaceAmount
-      ? "amount"
-      : "none";
 
   const setLeftText = (text: string) => {
     setEditedTexts((currentTexts) => ({
@@ -722,22 +726,23 @@ export default function Home() {
     target.scrollTop = progress * (target.scrollHeight - target.clientHeight);
   };
 
+  const whitespaceOptions: Record<WhitespaceMode, { label: string; title: string }> = {
+    none: { label: t.whitespaceExact, title: t.whitespaceExactTitle },
+    amount: { label: t.whitespaceAmount, title: t.whitespaceAmountTitle },
+    all: { label: t.whitespaceAll, title: t.whitespaceAllTitle },
+  };
+
   let diffContent;
   if (!result) {
     diffContent = (
       <div className="empty-state">
-        <span className="empty-icon" aria-hidden="true">
-          <LoaderCircle size={24} className="animate-spin" />
-        </span>
+        <LoaderCircle size={20} className="animate-spin" aria-hidden="true" />
         <strong>{t.computing}</strong>
       </div>
     );
   } else if (rows.length === 0) {
     diffContent = (
       <div className="empty-state">
-        <span className="empty-icon" aria-hidden="true">
-          <FileDiff size={24} />
-        </span>
         <strong>{t.waiting}</strong>
         <p>{t.waitingDescription}</p>
       </div>
@@ -746,7 +751,7 @@ export default function Home() {
     diffContent = (
       <div className="empty-state success-state">
         <span className="empty-icon" aria-hidden="true">
-          <Check size={24} />
+          <Check size={18} strokeWidth={2.5} />
         </span>
         <strong>{t.identical}</strong>
         <p>{t.identicalDescription}</p>
@@ -769,231 +774,239 @@ export default function Home() {
 
   return (
     <main className="app-shell">
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            <FileDiff size={19} strokeWidth={2.2} />
+      <header className="masthead">
+        <div className="wordmark">
+          <span className="wordmark-glyph" aria-hidden="true">
+            <span />
+            <span />
           </span>
-          <div>
-            <h1>{t.title}</h1>
-            <p>{t.tagline}</p>
-          </div>
+          diff
         </div>
-        <div className="topbar-actions">
-          <div
-            className="language-switch"
-            role="group"
-            aria-label={t.languageLabel}
-          >
-            <Languages className="language-icon" size={14} aria-hidden="true" />
+        <div className="masthead-actions">
+          <div className="language-switch" role="group" aria-label={t.languageLabel}>
             <button
               type="button"
-              className={locale === "en" ? "is-active" : undefined}
               aria-pressed={locale === "en"}
               onClick={() => selectLanguage("en")}
+              lang="en"
             >
               EN
             </button>
             <button
               type="button"
-              className={locale === "zh-CN" ? "is-active" : undefined}
               aria-pressed={locale === "zh-CN"}
               onClick={() => selectLanguage("zh-CN")}
+              lang="zh-CN"
             >
               中文
             </button>
           </div>
           <button
             type="button"
-            className="icon-button theme-toggle"
+            className="icon-button"
             onClick={toggleTheme}
             aria-label={theme === "dark" ? t.switchToLight : t.switchToDark}
             title={theme === "dark" ? t.switchToLight : t.switchToDark}
           >
             {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
           </button>
-          <div className="privacy-note">
-            <LockKeyhole size={14} aria-hidden="true" />
-            {t.privacy}
-          </div>
         </div>
       </header>
 
-      <section className="workspace" aria-label={t.workspaceLabel}>
-        <div className="toolbar">
-          <div className="toolbar-actions">
-            <Button variant="outline" size="sm" onClick={swapTexts}>
-              <ArrowLeftRight size={15} aria-hidden="true" />
-              {t.swap}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={clearTexts}>
-              <Eraser size={15} aria-hidden="true" />
-              {t.clear}
-            </Button>
-          </div>
-          <div className="toolbar-options">
-            <label
-              className="switch-option"
-              title={t.ignoreWhitespaceAmountTitle}
+      <div className="page">
+        <div className="intro">
+          <h1>{t.headline}</h1>
+        </div>
+
+        <section className="compare" aria-label={t.workspaceLabel}>
+          <div className="sheets">
+            <article className="sheet sheet-before">
+              <div className="sheet-heading">
+                <span className="sheet-label">{t.before}</span>
+                <span className="sheet-count">
+                  <CountLabel count={result?.leftCount} t={t} />
+                </span>
+                <span className="sheet-actions">
+                  <button
+                    className="icon-button"
+                    type="button"
+                    onClick={() => copyText("left")}
+                    disabled={!leftText}
+                    aria-label={t.copyBefore}
+                    title={t.copyBefore}
+                  >
+                    {copied === "left" ? <Check size={15} /> : <Copy size={15} />}
+                  </button>
+                  <button
+                    className="icon-button"
+                    type="button"
+                    onClick={() => setLeftText("")}
+                    disabled={!leftText}
+                    aria-label={t.clearBefore}
+                    title={t.clearBefore}
+                  >
+                    <X size={16} />
+                  </button>
+                </span>
+              </div>
+              <textarea
+                ref={leftEditor}
+                style={editorHeight ? { height: `${editorHeight}px` } : undefined}
+                value={leftText}
+                onChange={(event) => setLeftText(event.target.value)}
+                onScroll={(event) => syncEditorScroll(event.currentTarget, rightEditor.current)}
+                placeholder={t.beforePlaceholder}
+                aria-label={t.before}
+                spellCheck={false}
+              />
+            </article>
+
+            <button
+              type="button"
+              className="swap-button"
+              onClick={swapTexts}
+              aria-label={t.swap}
+              title={t.swap}
             >
-              <Switch
-                checked={ignoreWhitespaceAmount || ignoreAllWhitespace}
-                disabled={ignoreAllWhitespace}
-                onCheckedChange={setIgnoreWhitespaceAmount}
-                aria-label={t.ignoreWhitespaceAmount}
+              <ArrowLeftRight size={16} aria-hidden="true" />
+            </button>
+
+            <article className="sheet sheet-after">
+              <div className="sheet-heading">
+                <span className="sheet-label">{t.after}</span>
+                <span className="sheet-count">
+                  <CountLabel count={result?.rightCount} t={t} />
+                </span>
+                <span className="sheet-actions">
+                  <button
+                    className="icon-button"
+                    type="button"
+                    onClick={() => copyText("right")}
+                    disabled={!rightText}
+                    aria-label={t.copyAfter}
+                    title={t.copyAfter}
+                  >
+                    {copied === "right" ? <Check size={15} /> : <Copy size={15} />}
+                  </button>
+                  <button
+                    className="icon-button"
+                    type="button"
+                    onClick={() => setRightText("")}
+                    disabled={!rightText}
+                    aria-label={t.clearAfter}
+                    title={t.clearAfter}
+                  >
+                    <X size={16} />
+                  </button>
+                </span>
+              </div>
+              <textarea
+                ref={rightEditor}
+                style={editorHeight ? { height: `${editorHeight}px` } : undefined}
+                value={rightText}
+                onChange={(event) => setRightText(event.target.value)}
+                onScroll={(event) => syncEditorScroll(event.currentTarget, leftEditor.current)}
+                placeholder={t.afterPlaceholder}
+                aria-label={t.after}
+                spellCheck={false}
               />
-              {t.ignoreWhitespaceAmount}
-            </label>
-            <label className="switch-option" title={t.ignoreAllWhitespaceTitle}>
-              <Switch
-                checked={ignoreAllWhitespace}
-                onCheckedChange={setIgnoreAllWhitespace}
-                aria-label={t.ignoreAllWhitespace}
-              />
-              {t.ignoreAllWhitespace}
-            </label>
-          </div>
-        </div>
-
-        <div className="editor-grid">
-          <article className="editor-panel editor-panel-left">
-            <div className="panel-heading">
-              <div className="panel-title">
-                <span className="side-dot side-dot-left" />
-                {t.original}
-                <span className="side-key">A</span>
-              </div>
-              <div className="panel-meta">
-                <CountLabel count={result?.leftCount} t={t} />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="panel-clear-button"
-                  type="button"
-                  onClick={() => setLeftText("")}
-                  disabled={!leftText}
-                  aria-label={t.clearOriginal}
-                  title={t.clearOriginalTitle}
-                >
-                  <Eraser size={13} aria-hidden="true" />
-                  {t.clear}
-                </Button>
-                <button
-                  className="icon-button"
-                  type="button"
-                  onClick={() => copyText("left")}
-                  aria-label={t.copyOriginal}
-                  title={t.copyOriginal}
-                >
-                  {copied === "left" ? <Check size={15} /> : <Copy size={15} />}
-                </button>
-              </div>
-            </div>
-            <textarea
-              ref={leftEditor}
-              style={editorHeight ? { height: `${editorHeight}px` } : undefined}
-              value={leftText}
-              onChange={(event) => setLeftText(event.target.value)}
-              onScroll={(event) => syncEditorScroll(event.currentTarget, rightEditor.current)}
-              placeholder={t.originalPlaceholder}
-              aria-label={t.original}
-              spellCheck={false}
-            />
-          </article>
-
-          <article className="editor-panel editor-panel-right">
-            <div className="panel-heading">
-              <div className="panel-title">
-                <span className="side-dot side-dot-right" />
-                {t.revised}
-                <span className="side-key">B</span>
-              </div>
-              <div className="panel-meta">
-                <CountLabel count={result?.rightCount} t={t} />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="panel-clear-button"
-                  type="button"
-                  onClick={() => setRightText("")}
-                  disabled={!rightText}
-                  aria-label={t.clearRevised}
-                  title={t.clearRevisedTitle}
-                >
-                  <Eraser size={13} aria-hidden="true" />
-                  {t.clear}
-                </Button>
-                <button
-                  className="icon-button"
-                  type="button"
-                  onClick={() => copyText("right")}
-                  aria-label={t.copyRevised}
-                  title={t.copyRevised}
-                >
-                  {copied === "right" ? <Check size={15} /> : <Copy size={15} />}
-                </button>
-              </div>
-            </div>
-            <textarea
-              ref={rightEditor}
-              style={editorHeight ? { height: `${editorHeight}px` } : undefined}
-              value={rightText}
-              onChange={(event) => setRightText(event.target.value)}
-              onScroll={(event) => syncEditorScroll(event.currentTarget, leftEditor.current)}
-              placeholder={t.revisedPlaceholder}
-              aria-label={t.revised}
-              spellCheck={false}
-            />
-          </article>
-        </div>
-
-        <section className="diff-card" aria-label={t.diffResult} aria-busy={pending}>
-          <div className="diff-heading">
-            <div>
-              <div className="diff-title-row">
-                <h2>{t.diffResult}</h2>
-                {pending && result ? (
-                  <span className="diff-pending" role="status">
-                    <LoaderCircle size={13} className="animate-spin" aria-hidden="true" />
-                    {t.computing}
-                  </span>
-                ) : null}
-              </div>
-              <p>{t.diffDescription}</p>
-            </div>
-            <div className="diff-heading-side">
-              <div className="diff-view-options">
-                <label className="switch-option">
-                  <Switch
-                    checked={wrapLines}
-                    onCheckedChange={setWrapLines}
-                    aria-label={t.wrapLines}
-                  />
-                  {t.wrapLines}
-                </label>
-                <label className="switch-option" title={t.foldUnchangedTitle}>
-                  <Switch
-                    checked={foldUnchanged}
-                    onCheckedChange={(checked) => {
-                      setFoldPreference(checked);
-                      setExpandedFolds(new Set());
-                    }}
-                    aria-label={t.foldUnchanged}
-                  />
-                  {t.foldUnchanged}
-                </label>
-              </div>
-              <div className="diff-stats" aria-label={t.diffStatsLabel}>
-                <span className="stat stat-removed">− {result?.removedLines ?? 0}</span>
-                <span className="stat stat-added">+ {result?.addedLines ?? 0}</span>
-                <span className="stat stat-total">{t.changedLines(changedRows)}</span>
-              </div>
-            </div>
+            </article>
           </div>
 
-          {diffContent}
+          <div className="compare-options">
+            <div className="option-group">
+              <span className="option-label" id="whitespace-label">
+                {t.whitespace}
+              </span>
+              <div className="segmented" role="group" aria-labelledby="whitespace-label">
+                {WHITESPACE_MODES.map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    aria-pressed={whitespace === mode}
+                    title={whitespaceOptions[mode].title}
+                    onClick={() => setWhitespace(mode)}
+                  >
+                    {whitespaceOptions[mode].label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button type="button" className="text-button" onClick={clearTexts}>
+              <RotateCcw size={14} aria-hidden="true" />
+              {t.startOver}
+            </button>
+          </div>
         </section>
-      </section>
+
+        <section className="changes" aria-label={t.changes} aria-busy={pending}>
+          <div className="changes-heading">
+            <div className="changes-title">
+              <h2>{t.changes}</h2>
+              {changedRows > 0 ? (
+                <div className="change-summary" aria-label={t.changeSummaryLabel}>
+                  <span className="tally tally-removed">−{result?.removedLines ?? 0}</span>
+                  <span className="tally tally-added">+{result?.addedLines ?? 0}</span>
+                  <span className="tally-total">{t.changedLines(changedRows)}</span>
+                </div>
+              ) : null}
+              {pending && result ? (
+                <span className="changes-pending" role="status">
+                  <LoaderCircle size={13} className="animate-spin" aria-hidden="true" />
+                  {t.computing}
+                </span>
+              ) : null}
+            </div>
+            <div className="view-options">
+              <button
+                type="button"
+                className="toggle"
+                aria-pressed={wrapLines}
+                onClick={() => setWrapLines(!wrapLines)}
+              >
+                <span className="toggle-box" aria-hidden="true">
+                  <Check size={11} strokeWidth={3} />
+                </span>
+                {t.wrapLines}
+              </button>
+              <button
+                type="button"
+                className="toggle"
+                aria-pressed={foldUnchanged}
+                title={t.foldUnchangedTitle}
+                onClick={() => {
+                  setFoldPreference(!foldUnchanged);
+                  setExpandedFolds(new Set());
+                }}
+              >
+                <span className="toggle-box" aria-hidden="true">
+                  <Check size={11} strokeWidth={3} />
+                </span>
+                {t.foldUnchanged}
+              </button>
+            </div>
+          </div>
+
+          <div className="diff-frame">{diffContent}</div>
+
+          {changedRows > 0 ? (
+            <div className="legend" aria-hidden="true">
+              <span>
+                <i className="legend-swatch legend-line" />
+                {t.changedLineKey}
+              </span>
+              <span>
+                <i className="legend-swatch legend-words" />
+                {t.changedWordsKey}
+              </span>
+            </div>
+          ) : null}
+        </section>
+      </div>
+
+      <footer className="colophon">
+        <p>{t.privacy}</p>
+      </footer>
       <Toaster position="bottom-center" richColors theme={theme} />
     </main>
   );

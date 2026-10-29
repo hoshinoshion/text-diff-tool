@@ -82,7 +82,7 @@ The size limits at the top of `lib/diff.ts` keep huge inputs tractable. Don't us
 - Component rules must use tokens. A test fails if a hex color appears outside the token blocks.
 - The Tailwind `dark:` variant is redefined in the same file to follow these rules.
 
-Only `button`, `switch` and `sonner` remain from shadcn in `components/ui/`. They are vendored, and some lint rules are relaxed for them.
+Only `sonner` remains from shadcn in `components/ui/`. It is vendored, and some lint rules are relaxed for it. The page's own controls are plain buttons styled in `app/globals.css`.
 
 ## Tests
 
